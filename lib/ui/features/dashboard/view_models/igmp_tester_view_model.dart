@@ -26,6 +26,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
   StreamSubscription? _receiverStreamSub;
   StreamSubscription? _gapSub;
   StreamSubscription? _snifferSub;
+  StreamSubscription? _snifferStatusSub;
   StreamSubscription? _watchdogSub;
 
   IgmpTesterViewModel({
@@ -134,6 +135,13 @@ class IgmpTesterViewModel extends ChangeNotifier {
     _snifferSub = _snifferService.queryStream.listen((event) {
       _igmpEvents = _snifferService.events;
       _watchdog.recordQuery(event);
+      notifyListeners();
+    });
+
+    _snifferStatusSub = _snifferService.statusStream.listen((running) {
+      if (!running && _snifferService.lastError != null && _snifferService.lastError!.isNotEmpty) {
+        _errorMessage = 'IGMP Sniffer stopped: ${_snifferService.lastError}';
+      }
       notifyListeners();
     });
 
@@ -388,7 +396,8 @@ class IgmpTesterViewModel extends ChangeNotifier {
       }
       final started = await _snifferService.start(iface: _selectedInterface);
       if (!started) {
-        _errorMessage = 'Failed to start TShark IGMP sniffer on interface ${_selectedInterface?.name}.';
+        _errorMessage = _snifferService.lastError ??
+            'Failed to start TShark IGMP sniffer on interface ${_selectedInterface?.name}.';
       }
       notifyListeners();
     }
@@ -444,6 +453,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
     _receiverStreamSub?.cancel();
     _gapSub?.cancel();
     _snifferSub?.cancel();
+    _snifferStatusSub?.cancel();
     _watchdogSub?.cancel();
     _senderService.dispose();
     _receiverService.dispose();

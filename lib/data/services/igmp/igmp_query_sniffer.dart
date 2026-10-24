@@ -16,6 +16,9 @@ class IgmpQuerySnifferService {
   final _queryEventsController = StreamController<IgmpQueryEvent>.broadcast();
   Stream<IgmpQueryEvent> get queryStream => _queryEventsController.stream;
 
+  final _statusController = StreamController<bool>.broadcast();
+  Stream<bool> get statusStream => _statusController.stream;
+
   final List<IgmpQueryEvent> _events = [];
   List<IgmpQueryEvent> get events => List.unmodifiable(_events);
 
@@ -106,7 +109,7 @@ class IgmpQuerySnifferService {
       '-e', 'ip.src',
       '-e', 'ip.dst',
       '-e', 'igmp.type',
-      '-e', 'igmp.max_resp_time',
+      '-e', 'igmp.max_resp',
       '-e', 'igmp.maddr',
       '-e', 'igmp.version',
     ];
@@ -120,6 +123,7 @@ class IgmpQuerySnifferService {
       _process = await Process.start(tsharkPath, args);
       _isRunning = true;
       _lastError = null;
+      _statusController.add(true);
 
       _process?.stdout
           .transform(utf8.decoder)
@@ -137,14 +141,16 @@ class IgmpQuerySnifferService {
             }
           }, onError: (_) {});
 
-      _process?.exitCode.then((_) {
+      _process?.exitCode.then((code) {
         _isRunning = false;
+        _statusController.add(false);
       });
 
       return true;
     } catch (e) {
       _lastError = e.toString();
       _isRunning = false;
+      _statusController.add(false);
       return false;
     }
   }
@@ -222,6 +228,7 @@ class IgmpQuerySnifferService {
       _process?.kill();
     } catch (_) {}
     _process = null;
+    _statusController.add(false);
   }
 
   void clearEvents() {
@@ -233,5 +240,6 @@ class IgmpQuerySnifferService {
   void dispose() {
     stop();
     _queryEventsController.close();
+    _statusController.close();
   }
 }
