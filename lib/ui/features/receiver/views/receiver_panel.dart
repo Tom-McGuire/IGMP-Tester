@@ -8,164 +8,16 @@ class ReceiverPanel extends StatelessWidget {
   const ReceiverPanel({super.key});
 
   void _showAddGroupDialog(BuildContext context, IgmpTesterViewModel vm) {
-    final nameCtrl = TextEditingController(text: 'Group ${vm.receiverConfig.streams.length + 1}');
-    final groupCtrl = TextEditingController(
-      text: vm.receiverConfig.streams.isEmpty
-          ? '239.255.0.1'
-          : MulticastStreamConfig.incrementIp(vm.receiverConfig.streams.last.groupAddress, 1),
-    );
-    final portCtrl = TextEditingController(text: '5004');
-
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.add_circle_outline, color: Color(0xFF2196F3), size: 20),
-            SizedBox(width: 8),
-            Text('Add Multicast Group to Join', style: TextStyle(fontSize: 15)),
-          ],
-        ),
-        content: SizedBox(
-          width: 380,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'Stream / Group Name', hintText: 'Group 1'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: groupCtrl,
-                decoration: const InputDecoration(labelText: 'Multicast Group IP', hintText: '239.255.0.1'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: portCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
-            onPressed: () {
-              final newStream = MulticastReceiverStreamConfig(
-                id: 'rx_stream_${DateTime.now().millisecondsSinceEpoch}',
-                name: nameCtrl.text.trim().isEmpty ? 'Group' : nameCtrl.text.trim(),
-                groupAddress: groupCtrl.text.trim().isEmpty ? '239.255.0.1' : groupCtrl.text.trim(),
-                port: int.tryParse(portCtrl.text.trim()) ?? 5004,
-              );
-              vm.addReceiverStream(newStream);
-              Navigator.pop(ctx);
-            },
-            child: const Text('Add Group', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
+      builder: (ctx) => _AddReceiverGroupDialog(vm: vm),
     );
   }
 
   void _showBatchGroupDialog(BuildContext context, IgmpTesterViewModel vm) {
-    final countCtrl = TextEditingController(text: '10');
-    final startIpCtrl = TextEditingController(text: '239.255.0.1');
-    final portCtrl = TextEditingController(text: '5004');
-    bool incrementPort = false;
-
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.auto_awesome_motion, color: Color(0xFF2196F3), size: 20),
-              SizedBox(width: 8),
-              Text('Batch Subscribe Multicast Groups', style: TextStyle(fontSize: 15)),
-            ],
-          ),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Quickly subscribe to multiple multicast groups to test switch IGMP snooping tables, querier capacity, and selective group pruning.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: countCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Group Count', hintText: '10'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 2,
-                      child: TextField(
-                        controller: startIpCtrl,
-                        decoration: const InputDecoration(labelText: 'Starting Group IP', hintText: '239.255.0.1'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: portCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Base UDP Port', hintText: '5004'),
-                ),
-                const SizedBox(height: 10),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('Increment UDP port for each group (port + 1)', style: TextStyle(fontSize: 12)),
-                  value: incrementPort,
-                  onChanged: (val) {
-                    setDialogState(() {
-                      incrementPort = val ?? false;
-                    });
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
-              onPressed: () {
-                final count = int.tryParse(countCtrl.text.trim()) ?? 10;
-                final startIp = startIpCtrl.text.trim().isEmpty ? '239.255.0.1' : startIpCtrl.text.trim();
-                final port = int.tryParse(portCtrl.text.trim()) ?? 5004;
-
-                vm.batchGenerateReceiverStreams(
-                  count: count.clamp(1, 100),
-                  startingIp: startIp,
-                  basePort: port,
-                  incrementPort: incrementPort,
-                );
-                Navigator.pop(ctx);
-              },
-              child: const Text('Generate & Add', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      ),
+      builder: (ctx) => _BatchReceiverGroupsDialog(vm: vm),
     );
   }
 
@@ -716,6 +568,294 @@ class _MetricCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _AddReceiverGroupDialog extends StatefulWidget {
+  final IgmpTesterViewModel vm;
+  const _AddReceiverGroupDialog({required this.vm});
+
+  @override
+  State<_AddReceiverGroupDialog> createState() => _AddReceiverGroupDialogState();
+}
+
+class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _groupCtrl;
+  late final TextEditingController _portCtrl;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: 'Group ${widget.vm.receiverConfig.streams.length + 1}');
+    _groupCtrl = TextEditingController(
+      text: widget.vm.receiverConfig.streams.isEmpty
+          ? '239.255.0.1'
+          : MulticastStreamConfig.incrementIp(widget.vm.receiverConfig.streams.last.groupAddress, 1),
+    );
+    _portCtrl = TextEditingController(text: '5004');
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _groupCtrl.dispose();
+    _portCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final group = _groupCtrl.text.trim();
+    if (!MulticastStreamConfig.isValidMulticastIpv4(group)) {
+      setState(() {
+        _errorText = 'Invalid multicast IPv4 address ($group). Must be 224.0.0.0 – 239.255.255.255';
+      });
+      return;
+    }
+
+    final port = int.tryParse(_portCtrl.text.trim());
+    if (port == null || port < 1 || port > 65535) {
+      setState(() {
+        _errorText = 'UDP port must be between 1 and 65535';
+      });
+      return;
+    }
+
+    final newStream = MulticastReceiverStreamConfig(
+      id: 'rx_stream_${DateTime.now().millisecondsSinceEpoch}',
+      name: _nameCtrl.text.trim().isEmpty ? 'Group' : _nameCtrl.text.trim(),
+      groupAddress: group,
+      port: port,
+    );
+    widget.vm.addReceiverStream(newStream);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.add_circle_outline, color: Color(0xFF2196F3), size: 20),
+          SizedBox(width: 8),
+          Text('Add Multicast Group to Join', style: TextStyle(fontSize: 15)),
+        ],
+      ),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_errorText != null) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  _errorText!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                ),
+              ),
+            ],
+            TextField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(labelText: 'Stream / Group Name', hintText: 'Group 1'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _groupCtrl,
+              decoration: const InputDecoration(labelText: 'Multicast Group IP', hintText: '239.255.0.1'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _portCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
+          onPressed: _submit,
+          child: const Text('Add Group', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    );
+  }
+}
+
+class _BatchReceiverGroupsDialog extends StatefulWidget {
+  final IgmpTesterViewModel vm;
+  const _BatchReceiverGroupsDialog({required this.vm});
+
+  @override
+  State<_BatchReceiverGroupsDialog> createState() => _BatchReceiverGroupsDialogState();
+}
+
+class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> {
+  late final TextEditingController _countCtrl;
+  late final TextEditingController _startIpCtrl;
+  late final TextEditingController _portCtrl;
+  bool _incrementPort = false;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _countCtrl = TextEditingController(text: '10');
+    _startIpCtrl = TextEditingController(text: '239.255.0.1');
+    _portCtrl = TextEditingController(text: '5004');
+  }
+
+  @override
+  void dispose() {
+    _countCtrl.dispose();
+    _startIpCtrl.dispose();
+    _portCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final count = int.tryParse(_countCtrl.text.trim());
+    if (count == null || count < 1 || count > 100) {
+      setState(() {
+        _errorText = 'Count must be between 1 and 100';
+      });
+      return;
+    }
+
+    final startIp = _startIpCtrl.text.trim();
+    if (!MulticastStreamConfig.isValidMulticastIpv4(startIp)) {
+      setState(() {
+        _errorText = 'Invalid starting multicast IPv4 address ($startIp)';
+      });
+      return;
+    }
+
+    final port = int.tryParse(_portCtrl.text.trim());
+    if (port == null || port < 1 || port > 65535) {
+      setState(() {
+        _errorText = 'Base UDP port must be between 1 and 65535';
+      });
+      return;
+    }
+
+    if (_incrementPort && (port + count - 1 > 65535)) {
+      setState(() {
+        _errorText = 'Port range would exceed maximum port 65535';
+      });
+      return;
+    }
+
+    widget.vm.batchGenerateReceiverStreams(
+      count: count,
+      startingIp: startIp,
+      basePort: port,
+      incrementPort: _incrementPort,
+    );
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.auto_awesome_motion, color: Color(0xFF2196F3), size: 20),
+          SizedBox(width: 8),
+          Text('Batch Subscribe Multicast Groups', style: TextStyle(fontSize: 15)),
+        ],
+      ),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Quickly subscribe to multiple multicast groups to test switch IGMP snooping tables, querier capacity, and selective group pruning.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 14),
+            if (_errorText != null) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  _errorText!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                ),
+              ),
+            ],
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _countCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Group Count', hintText: '10'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: _startIpCtrl,
+                    decoration: const InputDecoration(labelText: 'Starting Group IP', hintText: '239.255.0.1'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _portCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Base UDP Port', hintText: '5004'),
+            ),
+            const SizedBox(height: 10),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Increment UDP port for each group (port + 1)', style: TextStyle(fontSize: 12)),
+              value: _incrementPort,
+              onChanged: (val) {
+                setState(() {
+                  _incrementPort = val ?? false;
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
+          onPressed: _submit,
+          child: const Text('Generate & Add', style: TextStyle(color: Colors.white)),
+        ),
+      ],
     );
   }
 }

@@ -50,19 +50,36 @@ class MulticastStreamConfig {
       id: id ?? this.id,
       name: name ?? this.name,
       groupAddress: groupAddress ?? this.groupAddress,
-      port: port ?? this.port,
-      packetsPerSecond: packetsPerSecond ?? this.packetsPerSecond,
-      packetSizeBytes: packetSizeBytes ?? this.packetSizeBytes,
-      ttl: ttl ?? this.ttl,
+      port: (port ?? this.port).clamp(1, 65535),
+      packetsPerSecond: (packetsPerSecond ?? this.packetsPerSecond).clamp(1, 5000),
+      packetSizeBytes: (packetSizeBytes ?? this.packetSizeBytes).clamp(56, 1472),
+      ttl: (ttl ?? this.ttl).clamp(1, 255),
       enabled: enabled ?? this.enabled,
     );
   }
 
+  static bool isValidMulticastIpv4(String ip) {
+    final parts = ip.trim().split('.');
+    if (parts.length != 4) return false;
+    final octets = parts.map(int.tryParse).toList();
+    if (octets.any((o) => o == null)) return false;
+    if (octets[0]! < 224 || octets[0]! > 239) return false;
+    for (int i = 1; i < 4; i++) {
+      if (octets[i]! < 0 || octets[i]! > 255) return false;
+    }
+    return true;
+  }
+
+  static const int minMulticastIpInt = 0xE0000000;
+  static const int maxMulticastIpInt = 0xEFFFFFFF;
+
   static String incrementIp(String ip, int increment) {
-    final parts = ip.split('.').map(int.tryParse).toList();
-    if (parts.length != 4 || parts.any((p) => p == null)) return ip;
-    int intVal = (parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!;
+    if (!isValidMulticastIpv4(ip)) return ip;
+    final parts = ip.trim().split('.').map(int.parse).toList();
+    int intVal = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
     intVal += increment;
+    if (intVal < minMulticastIpInt) intVal = minMulticastIpInt;
+    if (intVal > maxMulticastIpInt) intVal = maxMulticastIpInt;
     return '${(intVal >> 24) & 0xFF}.${(intVal >> 16) & 0xFF}.${(intVal >> 8) & 0xFF}.${intVal & 0xFF}';
   }
 }
@@ -95,7 +112,7 @@ class MulticastReceiverStreamConfig {
       id: id ?? this.id,
       name: name ?? this.name,
       groupAddress: groupAddress ?? this.groupAddress,
-      port: port ?? this.port,
+      port: (port ?? this.port).clamp(1, 65535),
       enabled: enabled ?? this.enabled,
     );
   }

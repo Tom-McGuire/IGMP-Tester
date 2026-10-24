@@ -5,8 +5,17 @@ import '../../../domain/models/multicast_gap_event.dart';
 import '../../../domain/models/multicast_packet.dart';
 import '../../../domain/models/multicast_stats.dart';
 
+class _PooledSocket {
+  final RawDatagramSocket? socket;
+  final int port;
+  final Set<String> joinedGroups = {};
+
+  _PooledSocket({this.socket, required this.port});
+}
+
 class _ReceiverStreamContext {
   final MulticastReceiverStreamConfig config;
+  final _PooledSocket pooledSocket;
   final DateTime startTime;
   String? activeSessionId;
   int? firstSeq;
@@ -22,10 +31,15 @@ class _ReceiverStreamContext {
   int bytesSinceSnapshot = 0;
   DateTime lastSnapshotTime;
   final List<MulticastGapEvent> gaps = [];
+  int totalGapsCount = 0;
+  int maxGapPackets = 0;
+  double maxGapDurationMs = 0.0;
+  double sumGapDurationMs = 0.0;
   ReceiverStats stats;
 
   _ReceiverStreamContext({
     required this.config,
+    required this.pooledSocket,
     required this.startTime,
     required this.lastSnapshotTime,
     required this.stats,
@@ -33,12 +47,15 @@ class _ReceiverStreamContext {
 }
 
 class MulticastReceiverService {
-  final Map<int, RawDatagramSocket> _socketsByPort = {};
+  final Map<int, List<_PooledSocket>> _socketPoolByPort = {};
   final Map<String, _ReceiverStreamContext> _streams = {}; // streamId -> context
   final Map<String, String> _sessionToStreamId = {}; // sessionId -> streamId
   final List<MulticastGapEvent> _allGaps = [];
   Timer? _statsTimer;
   NetworkInterface? _rawInterface;
+
+  static const int maxMembershipsPerSocket = 16;
+  static const int maxRetainedGaps = 5000;
 
   final _statsController = StreamController<ReceiverStats>.broadcast();
   Stream<ReceiverStats> get statsStream => _statsController.stream;
@@ -74,22 +91,33 @@ class MulticastReceiverService {
     final targetGroup = InternetAddress(streamConfig.groupAddress);
     final port = streamConfig.port;
 
-    // Get or create socket for this port
-    RawDatagramSocket? socket = _socketsByPort[port];
-    if (socket == null) {
-      socket = await RawDatagramSocket.bind(
+    // Get or allocate a pooled socket on this port that has space for another membership (< 16)
+    final pool = _socketPoolByPort.putIfAbsent(port, () => []);
+    _PooledSocket? pooled;
+
+    for (final p in pool) {
+      if (p.joinedGroups.contains(streamConfig.groupAddress) ||
+          p.joinedGroups.length < maxMembershipsPerSocket) {
+        pooled = p;
+        break;
+      }
+    }
+
+    if (pooled == null) {
+      final socket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
         port,
         reuseAddress: true,
         reusePort: !Platform.isWindows,
       );
       socket.multicastLoopback = enableLoopback;
-      _socketsByPort[port] = socket;
+      pooled = _PooledSocket(socket: socket, port: port);
+      pool.add(pooled);
 
       socket.listen((event) {
         if (event == RawSocketEvent.read) {
           while (true) {
-            final datagram = socket?.receive();
+            final datagram = socket.receive();
             if (datagram == null) break;
             _processDatagram(datagram, port);
           }
@@ -97,18 +125,26 @@ class MulticastReceiverService {
       });
     }
 
-    // Join multicast group on this socket
-    try {
-      socket.joinMulticast(targetGroup, rawInterface);
-    } catch (_) {
+    // Join multicast group on this socket - do not silently swallow exceptions
+    if (!pooled.joinedGroups.contains(streamConfig.groupAddress)) {
       try {
-        socket.joinMulticast(targetGroup);
-      } catch (_) {}
+        pooled.socket?.joinMulticast(targetGroup, rawInterface);
+      } catch (e) {
+        try {
+          pooled.socket?.joinMulticast(targetGroup);
+        } catch (e2) {
+          throw Exception(
+            'Failed to join multicast group ${streamConfig.groupAddress} on port $port: $e2',
+          );
+        }
+      }
+      pooled.joinedGroups.add(streamConfig.groupAddress);
     }
 
     final now = DateTime.now();
     final ctx = _ReceiverStreamContext(
       config: streamConfig,
+      pooledSocket: pooled,
       startTime: now,
       lastSnapshotTime: now,
       stats: ReceiverStats(
@@ -147,25 +183,32 @@ class MulticastReceiverService {
     final packet = MulticastPacket.decode(datagram.data);
     if (packet == null) return;
 
-    // Match stream context by sessionId or find candidate stream listening on this port
+    // Match stream context deterministically by destination group and destination port
     _ReceiverStreamContext? ctx;
     final mappedStreamId = _sessionToStreamId[packet.sessionId];
     if (mappedStreamId != null) {
-      ctx = _streams[mappedStreamId];
+      final mappedCtx = _streams[mappedStreamId];
+      if (mappedCtx != null &&
+          mappedCtx.config.groupAddress == packet.destinationGroup &&
+          mappedCtx.config.port == packet.destinationPort) {
+        ctx = mappedCtx;
+      }
     }
 
     if (ctx == null) {
-      // Find candidate stream on this port
+      // Find candidate stream explicitly matching destination group and port
       for (final candidate in _streams.values) {
-        if (candidate.config.port == port &&
-            (candidate.activeSessionId == null || candidate.activeSessionId == packet.sessionId)) {
+        if (candidate.config.groupAddress == packet.destinationGroup &&
+            candidate.config.port == packet.destinationPort) {
           ctx = candidate;
           _sessionToStreamId[packet.sessionId] = candidate.config.id;
           break;
         }
       }
-      ctx ??= _streams.values.firstWhere((s) => s.config.port == port, orElse: () => _streams.values.first);
     }
+
+    // If no subscribed stream matches the packet's destination group and port, drop packet
+    if (ctx == null) return;
 
     ctx.bytesSinceSnapshot += datagram.data.length;
     final now = DateTime.now();
@@ -203,6 +246,13 @@ class MulticastReceiverService {
       final gapDuration = ctx.lastPacketTime != null
           ? now.difference(ctx.lastPacketTime!)
           : Duration.zero;
+      final gapDurationMs = gapDuration.inMicroseconds / 1000.0;
+
+      // Maintain incremental gap metrics
+      ctx.totalGapsCount++;
+      if (missingCount > ctx.maxGapPackets) ctx.maxGapPackets = missingCount;
+      if (gapDurationMs > ctx.maxGapDurationMs) ctx.maxGapDurationMs = gapDurationMs;
+      ctx.sumGapDurationMs += gapDurationMs;
 
       final gapEvent = MulticastGapEvent(
         id: _allGaps.length + 1,
@@ -220,7 +270,15 @@ class MulticastReceiverService {
       );
 
       ctx.gaps.add(gapEvent);
+      if (ctx.gaps.length > maxRetainedGaps) {
+        ctx.gaps.removeAt(0);
+      }
+
       _allGaps.add(gapEvent);
+      if (_allGaps.length > maxRetainedGaps) {
+        _allGaps.removeAt(0);
+      }
+
       _gapController.add(gapEvent);
 
       ctx.packetsLost += missingCount;
@@ -240,23 +298,39 @@ class MulticastReceiverService {
   Future<void> stopStream(String streamId) async {
     final ctx = _streams.remove(streamId);
     if (ctx != null) {
+      // Clean up session ID mapping
+      _sessionToStreamId.removeWhere((_, id) => id == streamId);
+
       final port = ctx.config.port;
       final targetGroup = InternetAddress(ctx.config.groupAddress);
-      final socket = _socketsByPort[port];
+      final pooled = ctx.pooledSocket;
 
-      if (socket != null) {
+      // Check if any remaining streams on this pooled socket use the same group
+      final groupStillUsed = _streams.values.any(
+        (s) => s.pooledSocket == pooled && s.config.groupAddress == ctx.config.groupAddress,
+      );
+
+      if (!groupStillUsed) {
+        pooled.joinedGroups.remove(ctx.config.groupAddress);
         try {
-          socket.leaveMulticast(targetGroup, _rawInterface);
-        } catch (_) {}
-
-        // If no more streams on this port, close socket
-        final otherStreamsOnPort = _streams.values.any((s) => s.config.port == port);
-        if (!otherStreamsOnPort) {
-          _socketsByPort.remove(port);
+          pooled.socket?.leaveMulticast(targetGroup, _rawInterface);
+        } catch (_) {
           try {
-            socket.close();
+            pooled.socket?.leaveMulticast(targetGroup);
           } catch (_) {}
         }
+      }
+
+      // If no streams remain on this pooled socket, close and remove it
+      final socketStillUsed = _streams.values.any((s) => s.pooledSocket == pooled);
+      if (!socketStillUsed) {
+        _socketPoolByPort[port]?.remove(pooled);
+        if (_socketPoolByPort[port]?.isEmpty ?? false) {
+          _socketPoolByPort.remove(port);
+        }
+        try {
+          pooled.socket?.close();
+        } catch (_) {}
       }
     }
 
@@ -268,20 +342,23 @@ class MulticastReceiverService {
   }
 
   Future<void> stop() async {
-    for (final ctx in _streams.values) {
-      final socket = _socketsByPort[ctx.config.port];
-      if (socket != null) {
+    for (final pool in _socketPoolByPort.values) {
+      for (final p in pool) {
+        for (final group in p.joinedGroups) {
+          try {
+            p.socket?.leaveMulticast(InternetAddress(group), _rawInterface);
+          } catch (_) {
+            try {
+              p.socket?.leaveMulticast(InternetAddress(group));
+            } catch (_) {}
+          }
+        }
         try {
-          socket.leaveMulticast(InternetAddress(ctx.config.groupAddress), _rawInterface);
+          p.socket?.close();
         } catch (_) {}
       }
     }
-    for (final s in _socketsByPort.values) {
-      try {
-        s.close();
-      } catch (_) {}
-    }
-    _socketsByPort.clear();
+    _socketPoolByPort.clear();
     _streams.clear();
     _sessionToStreamId.clear();
     _statsTimer?.cancel();
@@ -305,6 +382,7 @@ class MulticastReceiverService {
     int totalGaps = 0;
     int maxGapPkts = 0;
     double maxGapMs = 0.0;
+    double globalSumGapDurationMs = 0.0;
     double totalPps = 0.0;
     double totalMbps = 0.0;
     double sumJitter = 0.0;
@@ -332,16 +410,7 @@ class MulticastReceiverService {
           ? ((ctx.packetsLost / expected) * 100.0).clamp(0.0, 100.0)
           : 0.0;
 
-      int sMaxGapPkts = 0;
-      double sMaxGapMs = 0.0;
-      double sTotalGapMs = 0.0;
-
-      for (final g in ctx.gaps) {
-        if (g.missingPackets > sMaxGapPkts) sMaxGapPkts = g.missingPackets;
-        if (g.gapDurationMs > sMaxGapMs) sMaxGapMs = g.gapDurationMs;
-        sTotalGapMs += g.gapDurationMs;
-      }
-      final sAvgGapMs = ctx.gaps.isNotEmpty ? (sTotalGapMs / ctx.gaps.length) : 0.0;
+      final sAvgGapMs = ctx.totalGapsCount > 0 ? (ctx.sumGapDurationMs / ctx.totalGapsCount) : 0.0;
       final duration = now.difference(ctx.startTime);
 
       final sStats = ctx.stats.copyWith(
@@ -351,9 +420,9 @@ class MulticastReceiverService {
         lossRatePercent: lossPct,
         outOfOrderPackets: ctx.outOfOrderPackets,
         duplicatePackets: ctx.duplicatePackets,
-        totalGaps: ctx.gaps.length,
-        maxGapPackets: sMaxGapPkts,
-        maxGapDurationMs: sMaxGapMs,
+        totalGaps: ctx.totalGapsCount,
+        maxGapPackets: ctx.maxGapPackets,
+        maxGapDurationMs: ctx.maxGapDurationMs,
         avgGapDurationMs: sAvgGapMs,
         currentPps: ppsDelta,
         currentBitrateMbps: mbps,
@@ -372,9 +441,10 @@ class MulticastReceiverService {
       totalLost += ctx.packetsLost;
       totalOoO += ctx.outOfOrderPackets;
       totalDup += ctx.duplicatePackets;
-      totalGaps += ctx.gaps.length;
-      if (sMaxGapPkts > maxGapPkts) maxGapPkts = sMaxGapPkts;
-      if (sMaxGapMs > maxGapMs) maxGapMs = sMaxGapMs;
+      totalGaps += ctx.totalGapsCount;
+      globalSumGapDurationMs += ctx.sumGapDurationMs;
+      if (ctx.maxGapPackets > maxGapPkts) maxGapPkts = ctx.maxGapPackets;
+      if (ctx.maxGapDurationMs > maxGapMs) maxGapMs = ctx.maxGapDurationMs;
       totalPps += ppsDelta;
       totalMbps += mbps;
       sumJitter += (ctx.jitterUs / 1000.0);
@@ -388,6 +458,7 @@ class MulticastReceiverService {
         : 0.0;
 
     final avgJitter = _streams.isNotEmpty ? (sumJitter / _streams.length) : 0.0;
+    final globalAvgGapMs = totalGaps > 0 ? (globalSumGapDurationMs / totalGaps) : 0.0;
 
     _aggregateStats = ReceiverStats(
       packetsReceived: totalRx,
@@ -399,6 +470,7 @@ class MulticastReceiverService {
       totalGaps: totalGaps,
       maxGapPackets: maxGapPkts,
       maxGapDurationMs: maxGapMs,
+      avgGapDurationMs: globalAvgGapMs,
       currentPps: totalPps,
       currentBitrateMbps: totalMbps,
       jitterMs: avgJitter,
@@ -411,10 +483,40 @@ class MulticastReceiverService {
     _allGaps.clear();
     for (final ctx in _streams.values) {
       ctx.gaps.clear();
+      ctx.totalGapsCount = 0;
+      ctx.maxGapPackets = 0;
+      ctx.maxGapDurationMs = 0.0;
+      ctx.sumGapDurationMs = 0.0;
       ctx.packetsLost = 0;
       ctx.outOfOrderPackets = 0;
       ctx.duplicatePackets = 0;
     }
+    _recalculateStats();
+  }
+
+  // Testing hooks
+  void addStreamForTesting(MulticastReceiverStreamConfig streamConfig) {
+    final now = DateTime.now();
+    _streams[streamConfig.id] = _ReceiverStreamContext(
+      config: streamConfig,
+      pooledSocket: _PooledSocket(socket: null, port: streamConfig.port),
+      startTime: now,
+      lastSnapshotTime: now,
+      stats: ReceiverStats(
+        streamId: streamConfig.id,
+        streamName: streamConfig.name,
+        groupAddress: streamConfig.groupAddress,
+        port: streamConfig.port,
+        duration: Duration.zero,
+      ),
+    );
+  }
+
+  void processDatagramForTesting(Datagram datagram, int port) {
+    _processDatagram(datagram, port);
+  }
+
+  void recalculateStatsForTesting() {
     _recalculateStats();
   }
 

@@ -7,232 +7,16 @@ class SenderPanel extends StatelessWidget {
   const SenderPanel({super.key});
 
   void _showAddStreamDialog(BuildContext context, IgmpTesterViewModel vm) {
-    final nameCtrl = TextEditingController(text: 'Stream ${vm.senderConfig.streams.length + 1}');
-    final groupCtrl = TextEditingController(
-      text: vm.senderConfig.streams.isEmpty
-          ? '239.255.0.1'
-          : MulticastStreamConfig.incrementIp(vm.senderConfig.streams.last.groupAddress, 1),
-    );
-    final portCtrl = TextEditingController(text: '5004');
-    final rateCtrl = TextEditingController(text: '50');
-    final sizeCtrl = TextEditingController(text: '256');
-    final ttlCtrl = TextEditingController(text: '64');
-
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.add_circle_outline, color: Color(0xFF007ACC), size: 20),
-            SizedBox(width: 8),
-            Text('Add Multicast Stream', style: TextStyle(fontSize: 15)),
-          ],
-        ),
-        content: SizedBox(
-          width: 400,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(labelText: 'Stream Name', hintText: 'Stream 1'),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: groupCtrl,
-                decoration: const InputDecoration(labelText: 'Multicast Group IP', hintText: '239.255.0.1'),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: portCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextField(
-                      controller: ttlCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'TTL (Hops)', hintText: '64'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: rateCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Rate (PPS)', hintText: '50'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextField(
-                      controller: sizeCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Size (Bytes)', hintText: '256'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF007ACC)),
-            onPressed: () {
-              final newStream = MulticastStreamConfig(
-                id: 'stream_${DateTime.now().millisecondsSinceEpoch}',
-                name: nameCtrl.text.trim().isEmpty ? 'Stream' : nameCtrl.text.trim(),
-                groupAddress: groupCtrl.text.trim().isEmpty ? '239.255.0.1' : groupCtrl.text.trim(),
-                port: int.tryParse(portCtrl.text.trim()) ?? 5004,
-                packetsPerSecond: int.tryParse(rateCtrl.text.trim()) ?? 50,
-                packetSizeBytes: int.tryParse(sizeCtrl.text.trim()) ?? 256,
-                ttl: int.tryParse(ttlCtrl.text.trim()) ?? 64,
-              );
-              vm.addSenderStream(newStream);
-              Navigator.pop(ctx);
-            },
-            child: const Text('Add Stream', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
+      builder: (ctx) => _AddSenderStreamDialog(vm: vm),
     );
   }
 
   void _showBatchDialog(BuildContext context, IgmpTesterViewModel vm) {
-    final countCtrl = TextEditingController(text: '10');
-    final startIpCtrl = TextEditingController(text: '239.255.0.1');
-    final portCtrl = TextEditingController(text: '5004');
-    final rateCtrl = TextEditingController(text: '50');
-    final sizeCtrl = TextEditingController(text: '256');
-    bool incrementPort = false;
-
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.auto_awesome_motion, color: Color(0xFF007ACC), size: 20),
-              SizedBox(width: 8),
-              Text('Batch Generate Saturation Streams', style: TextStyle(fontSize: 15)),
-            ],
-          ),
-          content: SizedBox(
-            width: 440,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Instantly generate multiple multicast streams across a block of addresses to test switch IGMP snooping table capacity and network saturation.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: countCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Stream Count (e.g. 10)', hintText: '10'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 2,
-                      child: TextField(
-                        controller: startIpCtrl,
-                        decoration: const InputDecoration(labelText: 'Starting Group IP', hintText: '239.255.0.1'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: portCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Base UDP Port', hintText: '5004'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: rateCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Rate per Stream (PPS)', hintText: '50'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: sizeCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Packet Size (Bytes)', hintText: '256'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text('Increment UDP port for each stream (port + 1)', style: TextStyle(fontSize: 12)),
-                  value: incrementPort,
-                  onChanged: (val) {
-                    setDialogState(() {
-                      incrementPort = val ?? false;
-                    });
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF007ACC)),
-              onPressed: () {
-                final count = int.tryParse(countCtrl.text.trim()) ?? 10;
-                final startIp = startIpCtrl.text.trim().isEmpty ? '239.255.0.1' : startIpCtrl.text.trim();
-                final port = int.tryParse(portCtrl.text.trim()) ?? 5004;
-                final pps = int.tryParse(rateCtrl.text.trim()) ?? 50;
-                final size = int.tryParse(sizeCtrl.text.trim()) ?? 256;
-
-                vm.batchGenerateSenderStreams(
-                  count: count.clamp(1, 100),
-                  startingIp: startIp,
-                  basePort: port,
-                  pps: pps.clamp(1, 2000),
-                  packetSize: size.clamp(64, 1472),
-                  incrementPort: incrementPort,
-                );
-                Navigator.pop(ctx);
-              },
-              child: const Text('Generate Streams', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      ),
+      builder: (ctx) => _BatchSenderStreamsDialog(vm: vm),
     );
   }
 
@@ -653,6 +437,410 @@ class _MetricCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _AddSenderStreamDialog extends StatefulWidget {
+  final IgmpTesterViewModel vm;
+  const _AddSenderStreamDialog({required this.vm});
+
+  @override
+  State<_AddSenderStreamDialog> createState() => _AddSenderStreamDialogState();
+}
+
+class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _groupCtrl;
+  late final TextEditingController _portCtrl;
+  late final TextEditingController _rateCtrl;
+  late final TextEditingController _sizeCtrl;
+  late final TextEditingController _ttlCtrl;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: 'Stream ${widget.vm.senderConfig.streams.length + 1}');
+    _groupCtrl = TextEditingController(
+      text: widget.vm.senderConfig.streams.isEmpty
+          ? '239.255.0.1'
+          : MulticastStreamConfig.incrementIp(widget.vm.senderConfig.streams.last.groupAddress, 1),
+    );
+    _portCtrl = TextEditingController(text: '5004');
+    _rateCtrl = TextEditingController(text: '50');
+    _sizeCtrl = TextEditingController(text: '256');
+    _ttlCtrl = TextEditingController(text: '64');
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _groupCtrl.dispose();
+    _portCtrl.dispose();
+    _rateCtrl.dispose();
+    _sizeCtrl.dispose();
+    _ttlCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final group = _groupCtrl.text.trim();
+    if (!MulticastStreamConfig.isValidMulticastIpv4(group)) {
+      setState(() {
+        _errorText = 'Invalid multicast IPv4 address ($group). Must be 224.0.0.0 – 239.255.255.255';
+      });
+      return;
+    }
+
+    final port = int.tryParse(_portCtrl.text.trim());
+    if (port == null || port < 1 || port > 65535) {
+      setState(() {
+        _errorText = 'Port must be between 1 and 65535';
+      });
+      return;
+    }
+
+    final ttl = int.tryParse(_ttlCtrl.text.trim());
+    if (ttl == null || ttl < 1 || ttl > 255) {
+      setState(() {
+        _errorText = 'TTL must be between 1 and 255';
+      });
+      return;
+    }
+
+    final rate = int.tryParse(_rateCtrl.text.trim());
+    if (rate == null || rate < 1 || rate > 5000) {
+      setState(() {
+        _errorText = 'Rate (PPS) must be between 1 and 5000';
+      });
+      return;
+    }
+
+    final size = int.tryParse(_sizeCtrl.text.trim());
+    if (size == null || size < 56 || size > 1472) {
+      setState(() {
+        _errorText = 'Size must be between 56 and 1472 bytes (MTU safe)';
+      });
+      return;
+    }
+
+    final newStream = MulticastStreamConfig(
+      id: 'stream_${DateTime.now().millisecondsSinceEpoch}',
+      name: _nameCtrl.text.trim().isEmpty ? 'Stream' : _nameCtrl.text.trim(),
+      groupAddress: group,
+      port: port,
+      packetsPerSecond: rate,
+      packetSizeBytes: size,
+      ttl: ttl,
+    );
+    widget.vm.addSenderStream(newStream);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.add_circle_outline, color: Color(0xFF007ACC), size: 20),
+          SizedBox(width: 8),
+          Text('Add Multicast Stream', style: TextStyle(fontSize: 15)),
+        ],
+      ),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (_errorText != null) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  _errorText!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                ),
+              ),
+            ],
+            TextField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(labelText: 'Stream Name', hintText: 'Stream 1'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _groupCtrl,
+              decoration: const InputDecoration(labelText: 'Multicast Group IP', hintText: '239.255.0.1'),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _portCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _ttlCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'TTL (Hops)', hintText: '64'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _rateCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Rate (PPS)', hintText: '50'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _sizeCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Size (Bytes)', hintText: '256'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF007ACC)),
+          onPressed: _submit,
+          child: const Text('Add Stream', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    );
+  }
+}
+
+class _BatchSenderStreamsDialog extends StatefulWidget {
+  final IgmpTesterViewModel vm;
+  const _BatchSenderStreamsDialog({required this.vm});
+
+  @override
+  State<_BatchSenderStreamsDialog> createState() => _BatchSenderStreamsDialogState();
+}
+
+class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
+  late final TextEditingController _countCtrl;
+  late final TextEditingController _startIpCtrl;
+  late final TextEditingController _portCtrl;
+  late final TextEditingController _rateCtrl;
+  late final TextEditingController _sizeCtrl;
+  bool _incrementPort = false;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _countCtrl = TextEditingController(text: '10');
+    _startIpCtrl = TextEditingController(text: '239.255.0.1');
+    _portCtrl = TextEditingController(text: '5004');
+    _rateCtrl = TextEditingController(text: '50');
+    _sizeCtrl = TextEditingController(text: '256');
+  }
+
+  @override
+  void dispose() {
+    _countCtrl.dispose();
+    _startIpCtrl.dispose();
+    _portCtrl.dispose();
+    _rateCtrl.dispose();
+    _sizeCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final count = int.tryParse(_countCtrl.text.trim());
+    if (count == null || count < 1 || count > 100) {
+      setState(() {
+        _errorText = 'Count must be between 1 and 100';
+      });
+      return;
+    }
+
+    final startIp = _startIpCtrl.text.trim();
+    if (!MulticastStreamConfig.isValidMulticastIpv4(startIp)) {
+      setState(() {
+        _errorText = 'Invalid starting multicast IPv4 address ($startIp)';
+      });
+      return;
+    }
+
+    final port = int.tryParse(_portCtrl.text.trim());
+    if (port == null || port < 1 || port > 65535) {
+      setState(() {
+        _errorText = 'Base UDP port must be between 1 and 65535';
+      });
+      return;
+    }
+
+    if (_incrementPort && (port + count - 1 > 65535)) {
+      setState(() {
+        _errorText = 'Port range would exceed maximum port 65535';
+      });
+      return;
+    }
+
+    final pps = int.tryParse(_rateCtrl.text.trim());
+    if (pps == null || pps < 1 || pps > 5000) {
+      setState(() {
+        _errorText = 'Rate (PPS) must be between 1 and 5000';
+      });
+      return;
+    }
+
+    final size = int.tryParse(_sizeCtrl.text.trim());
+    if (size == null || size < 56 || size > 1472) {
+      setState(() {
+        _errorText = 'Size must be between 56 and 1472 bytes';
+      });
+      return;
+    }
+
+    widget.vm.batchGenerateSenderStreams(
+      count: count,
+      startingIp: startIp,
+      basePort: port,
+      pps: pps,
+      packetSize: size,
+      incrementPort: _incrementPort,
+    );
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.auto_awesome_motion, color: Color(0xFF007ACC), size: 20),
+          SizedBox(width: 8),
+          Text('Batch Generate Saturation Streams', style: TextStyle(fontSize: 15)),
+        ],
+      ),
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Instantly generate multiple multicast streams across a block of addresses to test switch IGMP snooping table capacity and network saturation.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 14),
+            if (_errorText != null) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  _errorText!,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                ),
+              ),
+            ],
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _countCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Stream Count (e.g. 10)', hintText: '10'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: _startIpCtrl,
+                    decoration: const InputDecoration(labelText: 'Starting Group IP', hintText: '239.255.0.1'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _portCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Base UDP Port', hintText: '5004'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _rateCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Rate per Stream (PPS)', hintText: '50'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _sizeCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Packet Size (Bytes)', hintText: '256'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Increment UDP port for each stream (port + 1)', style: TextStyle(fontSize: 12)),
+              value: _incrementPort,
+              onChanged: (val) {
+                setState(() {
+                  _incrementPort = val ?? false;
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF007ACC)),
+          onPressed: _submit,
+          child: const Text('Generate Streams', style: TextStyle(color: Colors.white)),
+        ),
+      ],
     );
   }
 }

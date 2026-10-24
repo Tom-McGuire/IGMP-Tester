@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import '../../../domain/models/multicast_config.dart';
 import '../../../domain/models/multicast_packet.dart';
 import '../../../domain/models/multicast_stats.dart';
@@ -9,6 +10,7 @@ class _ActiveSenderContext {
   final RawDatagramSocket socket;
   final String sessionId;
   final DateTime startTime;
+  final Uint8List packetBuffer;
   Timer? sendTimer;
   int seq = 0;
   int packetsSent = 0;
@@ -23,6 +25,7 @@ class _ActiveSenderContext {
     required this.socket,
     required this.sessionId,
     required this.startTime,
+    required this.packetBuffer,
     required this.lastSnapshotTime,
     required this.stats,
   });
@@ -76,11 +79,29 @@ class MulticastSenderService {
     final streamHash = streamConfig.id.hashCode.abs().toRadixString(16).padLeft(4, '0');
     final sessionId = (streamHash + hexTime).padRight(16, '0').substring(0, 16);
 
+    final pps = streamConfig.packetsPerSecond.clamp(1, 5000);
+    final intervalUs = (1000000 / pps).round();
+
+    // Pre-allocate template packet buffer with destination group and port
+    final templatePacket = MulticastPacket(
+      version: 1,
+      flags: 0,
+      sessionId: sessionId,
+      sequenceNumber: 0,
+      sendTimestampUs: 0,
+      configuredIntervalUs: intervalUs,
+      payloadSize: streamConfig.packetSizeBytes,
+      destinationGroup: streamConfig.groupAddress,
+      destinationPort: streamConfig.port,
+    );
+    final packetBuffer = templatePacket.encode();
+
     final context = _ActiveSenderContext(
       config: streamConfig,
       socket: socket,
       sessionId: sessionId,
       startTime: now,
+      packetBuffer: packetBuffer,
       lastSnapshotTime: now,
       stats: SenderStats(
         streamId: streamConfig.id,
@@ -91,9 +112,6 @@ class MulticastSenderService {
         duration: Duration.zero,
       ),
     );
-
-    final pps = streamConfig.packetsPerSecond.clamp(1, 5000);
-    final intervalUs = (1000000 / pps).round();
 
     int tickMs = 10;
     int packetsPerTick = 1;
@@ -109,20 +127,16 @@ class MulticastSenderService {
     context.sendTimer = Timer.periodic(Duration(milliseconds: tickMs), (_) {
       if (!_activeStreams.containsKey(streamConfig.id)) return;
 
+      final nowUs = DateTime.now().microsecondsSinceEpoch;
       for (int i = 0; i < packetsPerTick; i++) {
         context.seq++;
-        final packet = MulticastPacket(
-          version: 1,
-          flags: 0,
-          sessionId: sessionId,
-          sequenceNumber: context.seq,
-          sendTimestampUs: DateTime.now().microsecondsSinceEpoch,
-          configuredIntervalUs: intervalUs,
-          payloadSize: streamConfig.packetSizeBytes,
+        MulticastPacket.updateSequenceAndTimestamp(
+          context.packetBuffer,
+          context.seq,
+          nowUs,
         );
 
-        final bytes = packet.encode();
-        final sent = socket.send(bytes, targetGroup, targetPort);
+        final sent = socket.send(context.packetBuffer, targetGroup, targetPort);
         if (sent > 0) {
           context.packetsSent++;
           context.bytesSent += sent;

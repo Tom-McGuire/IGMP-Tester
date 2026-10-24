@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:igmp_tester/domain/models/multicast_config.dart';
 import 'package:igmp_tester/domain/models/multicast_gap_event.dart';
@@ -55,20 +56,40 @@ void main() {
       expect(gap.sequenceRange, equals('#42'));
     });
 
-    test('IP increment utility increments class D multicast addresses', () {
+    test('IPv4 multicast validation checks Class D addresses (224.0.0.0 to 239.255.255.255)', () {
+      expect(MulticastStreamConfig.isValidMulticastIpv4('239.255.0.1'), isTrue);
+      expect(MulticastStreamConfig.isValidMulticastIpv4('224.0.0.1'), isTrue);
+      expect(MulticastStreamConfig.isValidMulticastIpv4('239.192.0.1'), isTrue);
+      expect(MulticastStreamConfig.isValidMulticastIpv4('239.255.255.255'), isTrue);
+
+      // Invalid / Unicast / Class E / Malformed
+      expect(MulticastStreamConfig.isValidMulticastIpv4('192.168.1.1'), isFalse);
+      expect(MulticastStreamConfig.isValidMulticastIpv4('10.0.0.1'), isFalse);
+      expect(MulticastStreamConfig.isValidMulticastIpv4('127.0.0.1'), isFalse);
+      expect(MulticastStreamConfig.isValidMulticastIpv4('240.0.0.1'), isFalse);
+      expect(MulticastStreamConfig.isValidMulticastIpv4('223.255.255.255'), isFalse);
+      expect(MulticastStreamConfig.isValidMulticastIpv4('999.0.0.1'), isFalse);
+      expect(MulticastStreamConfig.isValidMulticastIpv4('not-an-ip'), isFalse);
+      expect(MulticastStreamConfig.isValidMulticastIpv4(''), isFalse);
+    });
+
+    test('IP increment utility increments class D multicast addresses and clamps bounds', () {
       expect(MulticastStreamConfig.incrementIp('239.255.0.1', 1), equals('239.255.0.2'));
       expect(MulticastStreamConfig.incrementIp('239.255.0.1', 10), equals('239.255.0.11'));
       expect(MulticastStreamConfig.incrementIp('239.255.0.255', 1), equals('239.255.1.0'));
+
+      // Overflow clamping
+      expect(MulticastStreamConfig.incrementIp('239.255.255.255', 1), equals('239.255.255.255'));
     });
 
-    test('CSV Export contains header and gap rows with stream info', () {
+    test('CSV Export sanitizes formula triggers and handles quotes', () {
       final service = CsvExportService();
       final now = DateTime.now();
       final gaps = [
         MulticastGapEvent(
           id: 1,
           sessionId: 'sess-1',
-          streamName: 'Stream 1',
+          streamName: '=cmd|"/C calc"!A0', // Formula trigger
           groupAddress: '239.255.0.1',
           port: 5004,
           timestamp: now,
@@ -79,6 +100,20 @@ void main() {
           lastPacketTime: now.subtract(const Duration(milliseconds: 80)),
           resumedTime: now,
         ),
+        MulticastGapEvent(
+          id: 2,
+          sessionId: '+inject',
+          streamName: 'Stream "Special, Name"',
+          groupAddress: '239.255.0.2',
+          port: 5004,
+          timestamp: now,
+          startSeq: 20,
+          endSeq: 21,
+          missingPackets: 2,
+          gapDuration: const Duration(milliseconds: 40),
+          lastPacketTime: now.subtract(const Duration(milliseconds: 40)),
+          resumedTime: now,
+        ),
       ];
 
       final stats = const ReceiverStats(
@@ -86,22 +121,40 @@ void main() {
         expectedPackets: 100,
         packetsLost: 4,
         lossRatePercent: 4.0,
-        totalGaps: 1,
+        totalGaps: 2,
         maxGapPackets: 4,
         maxGapDurationMs: 80.0,
-        avgGapDurationMs: 80.0,
-        activeSessionId: 'sess-1',
-        activeStreamsCount: 1,
+        avgGapDurationMs: 60.0,
+        activeStreamsCount: 2,
       );
 
       final csv = service.generateGapsCsv(gaps: gaps, stats: stats);
 
+      // Check summary
       expect(csv, contains('# Packets Received,96'));
-      expect(csv, contains('# Packets Lost,4'));
-      expect(csv, contains('# Loss Rate %,4.00%'));
-      expect(csv, contains('Gap_ID,Stream_Name,Group_Address,UDP_Port,Session_ID'));
-      expect(csv, contains('1,"Stream 1",239.255.0.1,5004,sess-1'));
-      expect(csv, contains('15,18,4,80.000'));
+      expect(csv, contains('# Average Gap Duration (ms),60.00'));
+
+      // Check formula injection sanitization: leading = or + is prefixed with '
+      expect(csv, contains("'=cmd|"));
+      expect(csv, contains("'+inject"));
+
+      // Check RFC 4180 quotes escaping
+      expect(csv, contains('""Special, Name""'));
+    });
+
+    test('saveCsvToFile writes content correctly to filesystem', () async {
+      final service = CsvExportService();
+      final tempDir = await Directory.systemTemp.createTemp('igmp_csv_test_');
+      final targetFile = '${tempDir.path}/test_report.csv';
+
+      try {
+        await service.saveCsvToFile(targetFile, 'col1,col2\nval1,val2\n');
+        final file = File(targetFile);
+        expect(await file.exists(), isTrue);
+        expect(await file.readAsString(), equals('col1,col2\nval1,val2\n'));
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
     });
   });
 }

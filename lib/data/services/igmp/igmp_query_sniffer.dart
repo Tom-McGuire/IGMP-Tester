@@ -10,6 +10,8 @@ class IgmpQuerySnifferService {
   final String? customTSharkPath;
   Process? _process;
   bool _isRunning = false;
+  String? _lastError;
+  String? get lastError => _lastError;
 
   final _queryEventsController = StreamController<IgmpQueryEvent>.broadcast();
   Stream<IgmpQueryEvent> get queryStream => _queryEventsController.stream;
@@ -41,10 +43,19 @@ class IgmpQuerySnifferService {
       }
 
       try {
-        final res = await Process.run('where', ['tshark']);
+        final res = await Process.run('where.exe', [r'$PATH:tshark']);
         if (res.exitCode == 0 && res.stdout.toString().trim().isNotEmpty) {
-          final first = res.stdout.toString().trim().split(RegExp(r'[\r\n]+')).first;
-          if (await File(first).exists()) return first;
+          final lines = res.stdout.toString().trim().split(RegExp(r'[\r\n]+'));
+          final cwd = Directory.current.path.toLowerCase();
+          for (final raw in lines) {
+            final candidate = raw.trim();
+            if (candidate.isEmpty) continue;
+            final lower = candidate.toLowerCase();
+            // Ensure candidate is outside CWD to prevent binary hijacking
+            if (!lower.startsWith(cwd) && await File(candidate).exists()) {
+              return candidate;
+            }
+          }
         }
       } catch (_) {}
     } else {
@@ -60,8 +71,13 @@ class IgmpQuerySnifferService {
       try {
         final res = await Process.run('which', ['tshark']);
         if (res.exitCode == 0 && res.stdout.toString().trim().isNotEmpty) {
-          final first = res.stdout.toString().trim().split(RegExp(r'[\r\n]+')).first;
-          if (await File(first).exists()) return first;
+          final lines = res.stdout.toString().trim().split(RegExp(r'[\r\n]+'));
+          for (final raw in lines) {
+            final candidate = raw.trim();
+            if (candidate.isNotEmpty && await File(candidate).exists()) {
+              return candidate;
+            }
+          }
         }
       } catch (_) {}
     }
@@ -76,6 +92,7 @@ class IgmpQuerySnifferService {
 
     final tsharkPath = await findTSharkPath();
     if (tsharkPath == null) {
+      _lastError = 'tshark executable not found. Please install Wireshark.';
       return false;
     }
 
@@ -102,18 +119,31 @@ class IgmpQuerySnifferService {
     try {
       _process = await Process.start(tsharkPath, args);
       _isRunning = true;
+      _lastError = null;
 
       _process?.stdout
           .transform(utf8.decoder)
           .transform(const LineSplitter())
           .listen(_parseLine, onError: (_) {});
 
+      // Drain stderr to prevent child process stalling on full buffer
+      _process?.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((errLine) {
+            final trimmed = errLine.trim();
+            if (trimmed.isNotEmpty) {
+              _lastError = trimmed;
+            }
+          }, onError: (_) {});
+
       _process?.exitCode.then((_) {
         _isRunning = false;
       });
 
       return true;
-    } catch (_) {
+    } catch (e) {
+      _lastError = e.toString();
       _isRunning = false;
       return false;
     }

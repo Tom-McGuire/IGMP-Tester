@@ -239,7 +239,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
     final newStreams = <MulticastStreamConfig>[];
     for (int i = 0; i < count; i++) {
       final ip = MulticastStreamConfig.incrementIp(startingIp, i);
-      final port = incrementPort ? basePort + i : basePort;
+      final port = (incrementPort ? basePort + i : basePort).clamp(1, 65535);
       newStreams.add(
         MulticastStreamConfig(
           id: 'gen_tx_${DateTime.now().millisecondsSinceEpoch}_$i',
@@ -333,7 +333,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
     final newStreams = <MulticastReceiverStreamConfig>[];
     for (int i = 0; i < count; i++) {
       final ip = MulticastStreamConfig.incrementIp(startingIp, i);
-      final port = incrementPort ? basePort + i : basePort;
+      final port = (incrementPort ? basePort + i : basePort).clamp(1, 65535);
       newStreams.add(
         MulticastReceiverStreamConfig(
           id: 'gen_rx_${DateTime.now().millisecondsSinceEpoch}_$i',
