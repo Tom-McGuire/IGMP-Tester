@@ -1,6 +1,6 @@
 # IGMP & Multicast Tester
 
-A cross-platform Flutter desktop application (**Windows, macOS, and Linux**) designed for testing multicast networks and verifying IGMP (Internet Group Management Protocol) behavior across physical switches and routers.
+A cross-platform Flutter desktop application (**Windows, macOS, and Linux**) designed for testing multicast networks, verifying IGMP (Internet Group Management Protocol) behavior, and performing multi-stream network saturation testing across physical switches and routers.
 
 Unlike many existing multicast test tools that require complex command lines, Docker containers, or Linux VMs, **IGMP & Multicast Tester** runs as a standalone desktop executable on Windows, macOS, and Linux with zero external runtime dependencies for standard multicast streaming.
 
@@ -8,27 +8,31 @@ Unlike many existing multicast test tools that require complex command lines, Do
 
 ## Key Features
 
-- **Multicast Transmitter (Tx)**:
-  - Generates UDP multicast streams to any class D multicast address (`224.0.0.0` – `239.255.255.255`).
-  - Configurable transmission rates (1 to 1,000+ packets/sec), packet payload sizes (64 to 1,472 bytes MTU), and TTL (Hops).
-  - High-precision 50-byte framing header with magic signature (`"IGMPTEST"`), session UUID, 64-bit sequence numbers, and microsecond send timestamps.
-  - Multicast Loopback switch for local verification on the same machine.
-  - Presets for Organization-Local (`239.255.0.1`), Site-Local (`239.192.0.1`), and Test Groups (`239.1.1.1`).
+- **Multi-Stream Multicast Transmitter (Tx) & Saturation Engine**:
+  - Transmit multiple concurrent UDP multicast streams across different class D multicast groups (`224.0.0.0` – `239.255.255.255`).
+  - **Batch Stream Generator**: Instantly generate $N$ streams (e.g. 10, 20, 50, or 100 streams from `239.255.0.1` to `239.255.0.20` at 100 pps each $\rightarrow$ 2,000 pps aggregate).
+  - Configurable rates (1 to 2,000+ packets/sec per stream), packet payload sizes (64 to 1,472 bytes MTU), and TTL (Hops).
+  - High-precision 50-byte framing header with magic signature (`"IGMPTEST"`), stream/session UUID, 64-bit sequence numbers, and microsecond send timestamps.
+  - Per-stream controls (start, pause, edit, delete) plus global "Start All / Stop All".
+  - Aggregate outbound telemetry: Combined PPS, Total Bandwidth (Mbps), and Data Volume (MB/GB).
 
-- **Multicast Receiver & IGMP Join (Rx)**:
-  - Joins multicast groups via the host OS kernel stack (`RawDatagramSocket.joinMulticast`), issuing genuine **IGMP Membership Reports** (Join) to upstream IGMP snooping switches.
+- **Multi-Group Multicast Receiver & IGMP Join (Rx)**:
+  - Subscribes to multiple multicast groups simultaneously across single or distinct UDP ports.
+  - Issues genuine **IGMP Membership Reports** (Join) through the host OS kernel stack (`RawDatagramSocket.joinMulticast`) for every configured group to test switch IGMP snooping table capacity.
+  - **Batch Group Join**: 1-click subscription to ranges of multicast addresses.
   - Automatic **IGMP Leave Group** dispatch on stop or application close to maintain clean switch tables.
-  - Real-time telemetry: Packets Received vs. Expected, Packet Loss %, Out-of-Order / Duplicate counters, and RFC 3550 Jitter (ms).
-  - Live inbound throughput sparkline chart (Mbps).
+  - Per-stream and aggregate telemetry: Packets Received vs. Expected, Packet Loss %, Out-of-Order / Duplicate counters, and RFC 3550 Jitter (ms).
+  - Live aggregate inbound throughput sparkline chart (Mbps).
 
-- **Gap & Packet Loss Analysis**:
+- **Stream-Aware Gap & Packet Loss Analysis**:
   - Automatically identifies missing sequence numbers and logs each drop event with:
-    - Gap ID and detection timestamp.
+    - Target Stream and Group Address (e.g. `Stream 3 (239.255.0.3:5004)`).
     - Missing sequence range (e.g. `#104 – #128`).
     - Exact number of lost packets.
     - Duration of silence (ms) between the last good packet and the resumed packet.
     - Timestamps of the boundary packets.
-  - Real-time filter by sequence number or session ID.
+  - **Isolate Network Issues**: Compare whether drop events occurred across all streams at once (link flap or port buffer exhaustion) or only on specific groups (IGMP snooping table overflow or multicast hash collisions).
+  - Real-time search/filter by stream name, multicast group, sequence number, or session ID.
   - **Export to CSV**: Generates RFC-compliant CSV reports with session summary metrics and tabular gap records.
 
 - **IGMP Query Monitor & Querier Watchdog**:
@@ -89,20 +93,22 @@ Unlike many existing multicast test tools that require complex command lines, Do
 
 ## Testing Scenarios
 
-### 1. Loopback / Single-Computer Verification
-1. Launch the application.
-2. Select your active network adapter from the top bar dropdown.
-3. Keep **Multicast Loopback** toggled ON in both Tx and Rx tabs.
-4. Go to **Receiver (Rx)** and click **JOIN MULTICAST GROUP & START RECEIVING**.
-5. Go to **Transmitter (Tx)** and click **START TRANSMITTING MULTICAST STREAM**.
-6. Verify 0% packet loss and steady throughput.
-7. Stop and restart transmission to verify that sequence gaps are immediately cataloged in the **Gap Analysis** tab.
+### 1. Multi-Stream Network Saturation Testing
+1. On the **Transmitter (Tx)** tab, click **Batch Generator**.
+2. Set stream count to `20`, starting IP to `239.255.0.1`, rate to `100 pps`, and packet size to `1400 bytes`.
+3. Click **Generate Streams**.
+4. Click **START TRANSMITTING ALL STREAMS (20)**.
+5. You are now streaming 2,000 packets/sec (~22.4 Mbps aggregate multicast) across 20 distinct multicast groups.
+6. On the **Receiver (Rx)** machine, click **Batch Join** and subscribe to the same 20 groups.
+7. Click **JOIN ALL MULTICAST GROUPS (20) & START RECEIVING**.
+8. Inspect individual stream loss rates in the table and overall continuity in the **Gap Analysis** tab.
 
-### 2. Multi-Device Network Validation
-1. Run **IGMP & Multicast Tester** on Machine A (Sender) and Machine B / C (Receivers) on the same VLAN / subnet.
-2. Machine A transmits multicast traffic to `239.255.0.1:5004`.
-3. Machines B and C join the group.
-4. Check received packet continuity, gap lengths, and jitter across all receivers to detect switch buffering, Wi-Fi drops, or IGMP snooping timeouts.
+### 2. Single-Machine Loopback Test
+1. Select your active network adapter from the top bar dropdown.
+2. Keep **Multicast Loopback** toggled ON in both Tx and Rx tabs.
+3. On the **Receiver (Rx)** tab, click **JOIN ALL MULTICAST GROUPS & START RECEIVING**.
+4. On the **Transmitter (Tx)** tab, click **START TRANSMITTING ALL STREAMS**.
+5. Verify 0% packet loss and steady aggregate throughput.
 
 ---
 

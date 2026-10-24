@@ -21,7 +21,9 @@ class IgmpTesterViewModel extends ChangeNotifier {
   final CsvExportService _csvService;
 
   StreamSubscription? _senderSub;
+  StreamSubscription? _senderStreamSub;
   StreamSubscription? _receiverSub;
+  StreamSubscription? _receiverStreamSub;
   StreamSubscription? _gapSub;
   StreamSubscription? _snifferSub;
   StreamSubscription? _watchdogSub;
@@ -57,8 +59,14 @@ class IgmpTesterViewModel extends ChangeNotifier {
   SenderStats _senderStats = const SenderStats();
   SenderStats get senderStats => _senderStats;
 
+  Map<String, SenderStats> _streamSenderStats = {};
+  Map<String, SenderStats> get streamSenderStats => _streamSenderStats;
+
   ReceiverStats _receiverStats = const ReceiverStats();
   ReceiverStats get receiverStats => _receiverStats;
+
+  Map<String, ReceiverStats> _streamReceiverStats = {};
+  Map<String, ReceiverStats> get streamReceiverStats => _streamReceiverStats;
 
   List<MulticastGapEvent> _gaps = [];
   List<MulticastGapEvent> get gaps => _gaps;
@@ -83,7 +91,10 @@ class IgmpTesterViewModel extends ChangeNotifier {
   bool get isReceiverRunning => _receiverService.isRunning;
   bool get isSnifferRunning => _snifferService.isRunning;
 
-  // Chart data points (last 30 samples)
+  bool isSenderStreamActive(String streamId) => _senderService.isStreamRunning(streamId);
+  bool isReceiverStreamActive(String streamId) => _receiverService.isStreamRunning(streamId);
+
+  // Chart data points (last 40 samples)
   final List<double> _rxThroughputHistory = [];
   List<double> get rxThroughputHistory => List.unmodifiable(_rxThroughputHistory);
 
@@ -96,12 +107,22 @@ class IgmpTesterViewModel extends ChangeNotifier {
       notifyListeners();
     });
 
+    _senderStreamSub = _senderService.streamStatsStream.listen((streamMap) {
+      _streamSenderStats = streamMap;
+      notifyListeners();
+    });
+
     _receiverSub = _receiverService.statsStream.listen((stats) {
       _receiverStats = stats;
       _rxThroughputHistory.add(stats.currentBitrateMbps);
       if (_rxThroughputHistory.length > 40) {
         _rxThroughputHistory.removeAt(0);
       }
+      notifyListeners();
+    });
+
+    _receiverStreamSub = _receiverService.streamStatsStream.listen((streamMap) {
+      _streamReceiverStats = streamMap;
       notifyListeners();
     });
 
@@ -128,7 +149,6 @@ class IgmpTesterViewModel extends ChangeNotifier {
   Future<void> refreshInterfaces() async {
     _interfaces = await _interfaceService.getAvailableInterfaces();
     if (_interfaces.isNotEmpty && _selectedInterface == null) {
-      // Pick first non-loopback if available
       final preferred = _interfaces.firstWhere(
         (i) => i.ip != '127.0.0.1' && i.ip != '0.0.0.0',
         orElse: () => _interfaces.first,
@@ -158,17 +178,85 @@ class IgmpTesterViewModel extends ChangeNotifier {
       return g.startSeq.toString().contains(_gapFilter) ||
           g.endSeq.toString().contains(_gapFilter) ||
           g.missingPackets.toString().contains(_gapFilter) ||
+          g.streamName.toLowerCase().contains(_gapFilter) ||
+          g.groupAddress.contains(_gapFilter) ||
           g.sessionId.toLowerCase().contains(_gapFilter);
     }).toList();
   }
 
-  void updateSenderConfig(MulticastSenderConfig config) {
-    _senderConfig = config;
+  // Sender Stream Operations
+  void addSenderStream(MulticastStreamConfig stream) {
+    final list = List<MulticastStreamConfig>.from(_senderConfig.streams)..add(stream);
+    _senderConfig = _senderConfig.copyWith(streams: list);
     notifyListeners();
   }
 
-  void updateReceiverConfig(MulticastReceiverConfig config) {
-    _receiverConfig = config;
+  void updateSenderStream(MulticastStreamConfig stream) {
+    final list = _senderConfig.streams.map((s) => s.id == stream.id ? stream : s).toList();
+    _senderConfig = _senderConfig.copyWith(streams: list);
+    notifyListeners();
+  }
+
+  void removeSenderStream(String streamId) {
+    if (isSenderStreamActive(streamId)) {
+      _senderService.stopStream(streamId);
+    }
+    final list = _senderConfig.streams.where((s) => s.id != streamId).toList();
+    _senderConfig = _senderConfig.copyWith(streams: list);
+    notifyListeners();
+  }
+
+  Future<void> toggleIndividualSenderStream(String streamId) async {
+    _clearError();
+    if (isSenderStreamActive(streamId)) {
+      await _senderService.stopStream(streamId);
+      notifyListeners();
+    } else {
+      final stream = _senderConfig.streams.firstWhere((s) => s.id == streamId);
+      try {
+        final rawIface = _interfaceService.findRawInterface(_senderConfig.interface ?? _selectedInterface);
+        await _senderService.startStream(
+          streamConfig: stream,
+          rawInterface: rawIface,
+          enableLoopback: _senderConfig.enableLoopback,
+        );
+        notifyListeners();
+      } catch (e) {
+        _errorMessage = 'Failed to start stream ${stream.name}: $e';
+        notifyListeners();
+      }
+    }
+  }
+
+  void batchGenerateSenderStreams({
+    required int count,
+    required String startingIp,
+    required int basePort,
+    required int pps,
+    required int packetSize,
+    bool incrementPort = false,
+  }) {
+    final newStreams = <MulticastStreamConfig>[];
+    for (int i = 0; i < count; i++) {
+      final ip = MulticastStreamConfig.incrementIp(startingIp, i);
+      final port = incrementPort ? basePort + i : basePort;
+      newStreams.add(
+        MulticastStreamConfig(
+          id: 'gen_tx_${DateTime.now().millisecondsSinceEpoch}_$i',
+          name: 'Stream ${i + 1}',
+          groupAddress: ip,
+          port: port,
+          packetsPerSecond: pps,
+          packetSizeBytes: packetSize,
+        ),
+      );
+    }
+    _senderConfig = _senderConfig.copyWith(streams: newStreams);
+    notifyListeners();
+  }
+
+  void updateSenderLoopback(bool loopback) {
+    _senderConfig = _senderConfig.copyWith(enableLoopback: loopback);
     notifyListeners();
   }
 
@@ -180,16 +268,88 @@ class IgmpTesterViewModel extends ChangeNotifier {
     } else {
       try {
         final rawIface = _interfaceService.findRawInterface(_senderConfig.interface ?? _selectedInterface);
-        await _senderService.start(
+        await _senderService.startAll(
           config: _senderConfig,
           rawInterface: rawIface,
         );
         notifyListeners();
       } catch (e) {
-        _errorMessage = 'Failed to start multicast sender: $e';
+        _errorMessage = 'Failed to start multicast senders: $e';
         notifyListeners();
       }
     }
+  }
+
+  // Receiver Stream Operations
+  void addReceiverStream(MulticastReceiverStreamConfig stream) {
+    final list = List<MulticastReceiverStreamConfig>.from(_receiverConfig.streams)..add(stream);
+    _receiverConfig = _receiverConfig.copyWith(streams: list);
+    notifyListeners();
+  }
+
+  void updateReceiverStream(MulticastReceiverStreamConfig stream) {
+    final list = _receiverConfig.streams.map((s) => s.id == stream.id ? stream : s).toList();
+    _receiverConfig = _receiverConfig.copyWith(streams: list);
+    notifyListeners();
+  }
+
+  void removeReceiverStream(String streamId) {
+    if (isReceiverStreamActive(streamId)) {
+      _receiverService.stopStream(streamId);
+    }
+    final list = _receiverConfig.streams.where((s) => s.id != streamId).toList();
+    _receiverConfig = _receiverConfig.copyWith(streams: list);
+    notifyListeners();
+  }
+
+  Future<void> toggleIndividualReceiverStream(String streamId) async {
+    _clearError();
+    if (isReceiverStreamActive(streamId)) {
+      await _receiverService.stopStream(streamId);
+      notifyListeners();
+    } else {
+      final stream = _receiverConfig.streams.firstWhere((s) => s.id == streamId);
+      try {
+        final rawIface = _interfaceService.findRawInterface(_receiverConfig.interface ?? _selectedInterface);
+        await _receiverService.startStream(
+          streamConfig: stream,
+          rawInterface: rawIface,
+          enableLoopback: _receiverConfig.enableLoopback,
+        );
+        notifyListeners();
+      } catch (e) {
+        _errorMessage = 'Failed to join group ${stream.groupAddress}: $e';
+        notifyListeners();
+      }
+    }
+  }
+
+  void batchGenerateReceiverStreams({
+    required int count,
+    required String startingIp,
+    required int basePort,
+    bool incrementPort = false,
+  }) {
+    final newStreams = <MulticastReceiverStreamConfig>[];
+    for (int i = 0; i < count; i++) {
+      final ip = MulticastStreamConfig.incrementIp(startingIp, i);
+      final port = incrementPort ? basePort + i : basePort;
+      newStreams.add(
+        MulticastReceiverStreamConfig(
+          id: 'gen_rx_${DateTime.now().millisecondsSinceEpoch}_$i',
+          name: 'Group ${i + 1}',
+          groupAddress: ip,
+          port: port,
+        ),
+      );
+    }
+    _receiverConfig = _receiverConfig.copyWith(streams: newStreams);
+    notifyListeners();
+  }
+
+  void updateReceiverLoopback(bool loopback) {
+    _receiverConfig = _receiverConfig.copyWith(enableLoopback: loopback);
+    notifyListeners();
   }
 
   Future<void> toggleReceiver() async {
@@ -200,7 +360,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
     } else {
       try {
         final rawIface = _interfaceService.findRawInterface(_receiverConfig.interface ?? _selectedInterface);
-        await _receiverService.start(
+        await _receiverService.startAll(
           config: _receiverConfig,
           rawInterface: rawIface,
         );
@@ -208,12 +368,13 @@ class IgmpTesterViewModel extends ChangeNotifier {
         _rxThroughputHistory.clear();
         notifyListeners();
       } catch (e) {
-        _errorMessage = 'Failed to bind or join multicast receiver: $e';
+        _errorMessage = 'Failed to bind or join multicast receivers: $e';
         notifyListeners();
       }
     }
   }
 
+  // Sniffer Operations
   Future<void> toggleSniffer() async {
     _clearError();
     if (isSnifferRunning) {
@@ -278,7 +439,9 @@ class IgmpTesterViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _senderSub?.cancel();
+    _senderStreamSub?.cancel();
     _receiverSub?.cancel();
+    _receiverStreamSub?.cancel();
     _gapSub?.cancel();
     _snifferSub?.cancel();
     _watchdogSub?.cancel();

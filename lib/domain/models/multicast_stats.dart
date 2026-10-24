@@ -1,40 +1,64 @@
 class SenderStats {
+  final String streamId;
+  final String streamName;
+  final String groupAddress;
+  final int port;
   final int packetsSent;
   final int bytesSent;
   final double currentPps;
   final double currentBitrateMbps;
   final String activeSessionId;
   final Duration duration;
+  final int activeStreamsCount;
 
   const SenderStats({
+    this.streamId = '',
+    this.streamName = '',
+    this.groupAddress = '',
+    this.port = 0,
     this.packetsSent = 0,
     this.bytesSent = 0,
     this.currentPps = 0.0,
     this.currentBitrateMbps = 0.0,
     this.activeSessionId = '',
     this.duration = Duration.zero,
+    this.activeStreamsCount = 0,
   });
 
   SenderStats copyWith({
+    String? streamId,
+    String? streamName,
+    String? groupAddress,
+    int? port,
     int? packetsSent,
     int? bytesSent,
     double? currentPps,
     double? currentBitrateMbps,
     String? activeSessionId,
     Duration? duration,
+    int? activeStreamsCount,
   }) {
     return SenderStats(
+      streamId: streamId ?? this.streamId,
+      streamName: streamName ?? this.streamName,
+      groupAddress: groupAddress ?? this.groupAddress,
+      port: port ?? this.port,
       packetsSent: packetsSent ?? this.packetsSent,
       bytesSent: bytesSent ?? this.bytesSent,
       currentPps: currentPps ?? this.currentPps,
       currentBitrateMbps: currentBitrateMbps ?? this.currentBitrateMbps,
       activeSessionId: activeSessionId ?? this.activeSessionId,
       duration: duration ?? this.duration,
+      activeStreamsCount: activeStreamsCount ?? this.activeStreamsCount,
     );
   }
 }
 
 class ReceiverStats {
+  final String streamId;
+  final String streamName;
+  final String groupAddress;
+  final int port;
   final int packetsReceived;
   final int expectedPackets;
   final int packetsLost;
@@ -52,8 +76,13 @@ class ReceiverStats {
   final int? lastSeq;
   final String? activeSessionId;
   final Duration duration;
+  final int activeStreamsCount;
 
   const ReceiverStats({
+    this.streamId = '',
+    this.streamName = '',
+    this.groupAddress = '',
+    this.port = 0,
     this.packetsReceived = 0,
     this.expectedPackets = 0,
     this.packetsLost = 0,
@@ -71,9 +100,14 @@ class ReceiverStats {
     this.lastSeq,
     this.activeSessionId,
     this.duration = Duration.zero,
+    this.activeStreamsCount = 0,
   });
 
   ReceiverStats copyWith({
+    String? streamId,
+    String? streamName,
+    String? groupAddress,
+    int? port,
     int? packetsReceived,
     int? expectedPackets,
     int? packetsLost,
@@ -91,8 +125,13 @@ class ReceiverStats {
     int? lastSeq,
     String? activeSessionId,
     Duration? duration,
+    int? activeStreamsCount,
   }) {
     return ReceiverStats(
+      streamId: streamId ?? this.streamId,
+      streamName: streamName ?? this.streamName,
+      groupAddress: groupAddress ?? this.groupAddress,
+      port: port ?? this.port,
       packetsReceived: packetsReceived ?? this.packetsReceived,
       expectedPackets: expectedPackets ?? this.expectedPackets,
       packetsLost: packetsLost ?? this.packetsLost,
@@ -110,6 +149,7 @@ class ReceiverStats {
       lastSeq: lastSeq ?? this.lastSeq,
       activeSessionId: activeSessionId ?? this.activeSessionId,
       duration: duration ?? this.duration,
+      activeStreamsCount: activeStreamsCount ?? this.activeStreamsCount,
     );
   }
 }

@@ -13,74 +13,157 @@ enum MulticastPreset {
   const MulticastPreset(this.group, this.port, this.label);
 }
 
-class MulticastSenderConfig {
+class MulticastStreamConfig {
+  final String id;
+  final String name;
   final String groupAddress;
   final int port;
-  final NetworkInterfaceInfo? interface;
   final int packetsPerSecond;
   final int packetSizeBytes;
   final int ttl;
-  final bool enableLoopback;
-  final String sessionLabel;
+  final bool enabled;
 
-  const MulticastSenderConfig({
+  const MulticastStreamConfig({
+    required this.id,
+    required this.name,
     this.groupAddress = '239.255.0.1',
     this.port = 5004,
-    this.interface,
     this.packetsPerSecond = 50,
     this.packetSizeBytes = 256,
     this.ttl = 64,
-    this.enableLoopback = true,
-    this.sessionLabel = 'IGMP-Stream',
+    this.enabled = true,
   });
 
-  MulticastSenderConfig copyWith({
+  String get endpoint => '$groupAddress:$port';
+
+  MulticastStreamConfig copyWith({
+    String? id,
+    String? name,
     String? groupAddress,
     int? port,
-    NetworkInterfaceInfo? interface,
     int? packetsPerSecond,
     int? packetSizeBytes,
     int? ttl,
-    bool? enableLoopback,
-    String? sessionLabel,
+    bool? enabled,
   }) {
-    return MulticastSenderConfig(
+    return MulticastStreamConfig(
+      id: id ?? this.id,
+      name: name ?? this.name,
       groupAddress: groupAddress ?? this.groupAddress,
       port: port ?? this.port,
-      interface: interface ?? this.interface,
       packetsPerSecond: packetsPerSecond ?? this.packetsPerSecond,
       packetSizeBytes: packetSizeBytes ?? this.packetSizeBytes,
       ttl: ttl ?? this.ttl,
+      enabled: enabled ?? this.enabled,
+    );
+  }
+
+  static String incrementIp(String ip, int increment) {
+    final parts = ip.split('.').map(int.tryParse).toList();
+    if (parts.length != 4 || parts.any((p) => p == null)) return ip;
+    int intVal = (parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!;
+    intVal += increment;
+    return '${(intVal >> 24) & 0xFF}.${(intVal >> 16) & 0xFF}.${(intVal >> 8) & 0xFF}.${intVal & 0xFF}';
+  }
+}
+
+class MulticastReceiverStreamConfig {
+  final String id;
+  final String name;
+  final String groupAddress;
+  final int port;
+  final bool enabled;
+
+  const MulticastReceiverStreamConfig({
+    required this.id,
+    required this.name,
+    this.groupAddress = '239.255.0.1',
+    this.port = 5004,
+    this.enabled = true,
+  });
+
+  String get endpoint => '$groupAddress:$port';
+
+  MulticastReceiverStreamConfig copyWith({
+    String? id,
+    String? name,
+    String? groupAddress,
+    int? port,
+    bool? enabled,
+  }) {
+    return MulticastReceiverStreamConfig(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      groupAddress: groupAddress ?? this.groupAddress,
+      port: port ?? this.port,
+      enabled: enabled ?? this.enabled,
+    );
+  }
+}
+
+class MulticastSenderConfig {
+  final NetworkInterfaceInfo? interface;
+  final bool enableLoopback;
+  final List<MulticastStreamConfig> streams;
+
+  const MulticastSenderConfig({
+    this.interface,
+    this.enableLoopback = true,
+    this.streams = const [
+      MulticastStreamConfig(
+        id: 'stream_1',
+        name: 'Stream 1',
+        groupAddress: '239.255.0.1',
+        port: 5004,
+        packetsPerSecond: 50,
+        packetSizeBytes: 256,
+        ttl: 64,
+        enabled: true,
+      ),
+    ],
+  });
+
+  MulticastSenderConfig copyWith({
+    NetworkInterfaceInfo? interface,
+    bool? enableLoopback,
+    List<MulticastStreamConfig>? streams,
+  }) {
+    return MulticastSenderConfig(
+      interface: interface ?? this.interface,
       enableLoopback: enableLoopback ?? this.enableLoopback,
-      sessionLabel: sessionLabel ?? this.sessionLabel,
+      streams: streams ?? this.streams,
     );
   }
 }
 
 class MulticastReceiverConfig {
-  final String groupAddress;
-  final int port;
   final NetworkInterfaceInfo? interface;
   final bool enableLoopback;
+  final List<MulticastReceiverStreamConfig> streams;
 
   const MulticastReceiverConfig({
-    this.groupAddress = '239.255.0.1',
-    this.port = 5004,
     this.interface,
     this.enableLoopback = true,
+    this.streams = const [
+      MulticastReceiverStreamConfig(
+        id: 'rx_stream_1',
+        name: 'Group 1',
+        groupAddress: '239.255.0.1',
+        port: 5004,
+        enabled: true,
+      ),
+    ],
   });
 
   MulticastReceiverConfig copyWith({
-    String? groupAddress,
-    int? port,
     NetworkInterfaceInfo? interface,
     bool? enableLoopback,
+    List<MulticastReceiverStreamConfig>? streams,
   }) {
     return MulticastReceiverConfig(
-      groupAddress: groupAddress ?? this.groupAddress,
-      port: port ?? this.port,
       interface: interface ?? this.interface,
       enableLoopback: enableLoopback ?? this.enableLoopback,
+      streams: streams ?? this.streams,
     );
   }
 }

@@ -42,7 +42,7 @@ class TopControlBar extends StatelessWidget {
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  'Windows • macOS • Linux',
+                  'Multi-Stream & Saturation Engine',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                 ),
               ],
@@ -96,8 +96,8 @@ class TopControlBar extends StatelessWidget {
             _StatusPill(
               icon: Icons.upload,
               label: vm.isSenderRunning
-                  ? 'Tx: ${vm.senderStats.currentPps.toStringAsFixed(0)} pps'
-                  : 'Tx Idle',
+                  ? 'Tx: ${vm.senderStats.activeStreamsCount} active (${vm.senderStats.currentBitrateMbps.toStringAsFixed(1)}M)'
+                  : 'Tx Idle (${vm.senderConfig.streams.length} strms)',
               isActive: vm.isSenderRunning,
               activeColor: const Color(0xFF4CAF50),
             ),
@@ -106,8 +106,8 @@ class TopControlBar extends StatelessWidget {
             _StatusPill(
               icon: Icons.download,
               label: vm.isReceiverRunning
-                  ? 'Rx: ${vm.receiverStats.lossRatePercent.toStringAsFixed(1)}% loss'
-                  : 'Rx Idle',
+                  ? 'Rx: ${vm.receiverStats.activeStreamsCount} grps (${vm.receiverStats.lossRatePercent.toStringAsFixed(1)}% loss)'
+                  : 'Rx Idle (${vm.receiverConfig.streams.length} grps)',
               isActive: vm.isReceiverRunning,
               activeColor: vm.receiverStats.lossRatePercent > 0
                   ? const Color(0xFFFF9800)

@@ -35,9 +35,9 @@ class StatusBottomBar extends StatelessWidget {
             const Text('•', style: TextStyle(color: Colors.grey, fontSize: 10)),
             const SizedBox(width: 16),
 
-            // Active Group
+            // Active Groups
             Text(
-              'Group: ${vm.receiverConfig.groupAddress}:${vm.receiverConfig.port}',
+              'Streams: ${vm.senderConfig.streams.length} Tx | ${vm.receiverConfig.streams.length} Rx Groups',
               style: const TextStyle(fontSize: 11, color: Colors.white70),
             ),
             const SizedBox(width: 16),
@@ -46,7 +46,7 @@ class StatusBottomBar extends StatelessWidget {
 
             // Total throughput summary
             Text(
-              'Tx: ${vm.senderStats.currentBitrateMbps.toStringAsFixed(2)} Mbps | Rx: ${vm.receiverStats.currentBitrateMbps.toStringAsFixed(2)} Mbps',
+              'Tx: ${vm.senderStats.activeStreamsCount} active (${vm.senderStats.currentBitrateMbps.toStringAsFixed(2)} Mbps) | Rx: ${vm.receiverStats.activeStreamsCount} active (${vm.receiverStats.currentBitrateMbps.toStringAsFixed(2)} Mbps)',
               style: const TextStyle(fontSize: 11, color: Colors.white70),
             ),
             const SizedBox(width: 24),

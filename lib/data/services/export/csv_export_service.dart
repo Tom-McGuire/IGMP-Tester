@@ -13,7 +13,7 @@ class CsvExportService {
     if (stats != null) {
       buffer.writeln('# IGMP Multicast Tester Report');
       buffer.writeln('# Generated at,${DateTime.now().toIso8601String()}');
-      buffer.writeln('# Session ID,${stats.activeSessionId ?? "N/A"}');
+      buffer.writeln('# Active Streams,${stats.activeStreamsCount}');
       buffer.writeln('# Packets Received,${stats.packetsReceived}');
       buffer.writeln('# Packets Expected,${stats.expectedPackets}');
       buffer.writeln('# Packets Lost,${stats.packetsLost}');
@@ -26,11 +26,11 @@ class CsvExportService {
     }
 
     // CSV Table headers
-    buffer.writeln('Gap_ID,Session_ID,Timestamp,Start_Sequence,End_Sequence,Lost_Packets,Gap_Duration_MS,Last_Packet_Time,Resumed_Time');
+    buffer.writeln('Gap_ID,Stream_Name,Group_Address,UDP_Port,Session_ID,Timestamp,Start_Sequence,End_Sequence,Lost_Packets,Gap_Duration_MS,Last_Packet_Time,Resumed_Time');
 
     for (final gap in gaps) {
       buffer.writeln(
-        '${gap.id},${gap.sessionId},${gap.timestamp.toIso8601String()},${gap.startSeq},${gap.endSeq},${gap.missingPackets},${gap.gapDurationMs.toStringAsFixed(3)},${gap.lastPacketTime.toIso8601String()},${gap.resumedTime.toIso8601String()}',
+        '${gap.id},"${gap.streamName}",${gap.groupAddress},${gap.port},${gap.sessionId},${gap.timestamp.toIso8601String()},${gap.startSeq},${gap.endSeq},${gap.missingPackets},${gap.gapDurationMs.toStringAsFixed(3)},${gap.lastPacketTime.toIso8601String()},${gap.resumedTime.toIso8601String()}',
       );
     }
 

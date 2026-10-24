@@ -65,13 +65,13 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
             children: [
               // Search input
               SizedBox(
-                width: 280,
+                width: 300,
                 height: 34,
                 child: TextField(
                   controller: _searchCtrl,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.search, size: 16),
-                    hintText: 'Filter by sequence or session...',
+                    hintText: 'Filter by stream, group, or sequence...',
                     suffixIcon: _searchCtrl.text.isNotEmpty
                         ? IconButton(
                             icon: const Icon(Icons.clear, size: 14),
@@ -144,8 +144,9 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: const Row(
             children: [
-              SizedBox(width: 50, child: Text('#', style: _headerStyle)),
-              SizedBox(width: 120, child: Text('Time Detected', style: _headerStyle)),
+              SizedBox(width: 45, child: Text('#', style: _headerStyle)),
+              SizedBox(width: 115, child: Text('Time Detected', style: _headerStyle)),
+              Expanded(flex: 3, child: Text('Stream / Group Address', style: _headerStyle)),
               Expanded(flex: 3, child: Text('Missing Sequence Range', style: _headerStyle)),
               Expanded(flex: 2, child: Text('Lost Count', style: _headerStyle)),
               Expanded(flex: 2, child: Text('Gap Duration (ms)', style: _headerStyle)),
@@ -170,15 +171,15 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
                       const SizedBox(height: 12),
                       Text(
                         stats.packetsReceived > 0
-                            ? 'No Data Gaps Detected (100% Packet Continuity)'
+                            ? 'No Data Gaps Detected (100% Multicast Continuity)'
                             : 'No Multicast Packets Received Yet',
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         stats.packetsReceived > 0
-                            ? 'All ${stats.packetsReceived} packets arrived sequentially without drops.'
-                            : 'Start the receiver or transmitter to begin monitoring sequence continuity.',
+                            ? 'All ${stats.packetsReceived} packets across ${stats.activeStreamsCount} groups arrived sequentially.'
+                            : 'Start transmitters and receivers to begin multi-stream continuity monitoring.',
                         style: const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ],
@@ -261,17 +262,38 @@ class _GapTableRow extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 50,
+            width: 45,
             child: Text(
               '#${gap.id}',
               style: const TextStyle(fontSize: 11, color: Colors.grey),
             ),
           ),
           SizedBox(
-            width: 120,
+            width: 115,
             child: Text(
               timeFormat.format(gap.timestamp),
               style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.white70),
+            ),
+          ),
+          // Stream / Group Address
+          Expanded(
+            flex: 3,
+            child: Row(
+              children: [
+                const Icon(Icons.hub, size: 12, color: Color(0xFF2196F3)),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '${gap.streamName} (${gap.endpoint})',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF64B5F6),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(

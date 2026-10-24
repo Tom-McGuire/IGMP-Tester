@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:igmp_tester/main.dart';
 
 void main() {
-  testWidgets('IgmpTesterApp desktop smoke test and tab rendering', (WidgetTester tester) async {
+  testWidgets('IgmpTesterApp desktop smoke test and multi-stream tab rendering', (WidgetTester tester) async {
     // Set standard desktop window dimensions
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1.0;
@@ -16,15 +16,16 @@ void main() {
     expect(find.text('IGMP & Multicast Tester'), findsOneWidget);
     expect(find.text('Transmitter (Tx)'), findsOneWidget);
     expect(find.text('Receiver (Rx)'), findsOneWidget);
-    expect(find.text('START TRANSMITTING MULTICAST STREAM'), findsOneWidget);
+    expect(find.text('START TRANSMITTING ALL STREAMS (1)'), findsOneWidget);
+    expect(find.text('Batch Generator'), findsOneWidget);
 
-    // Switch to Receiver Tab (TabBar animation takes ~300ms)
+    // Switch to Receiver Tab
     await tester.tap(find.text('Receiver (Rx)'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.text('JOIN MULTICAST GROUP & START RECEIVING'), findsOneWidget);
+    expect(find.text('JOIN ALL MULTICAST GROUPS (1) & START RECEIVING'), findsOneWidget);
+    expect(find.text('Subscribed Groups'), findsOneWidget);
     expect(find.text('Packets Received'), findsOneWidget);
-    expect(find.text('Packet Loss Rate'), findsOneWidget);
   });
 }
