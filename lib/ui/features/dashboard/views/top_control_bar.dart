@@ -25,13 +25,22 @@ class TopControlBar extends StatelessWidget {
         child: Row(
           children: [
             // App Title & Brand
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF007ACC).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.asset(
+                'assets/images/app_icon.png',
+                width: 30,
+                height: 30,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF007ACC).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(Icons.hub_outlined, color: Color(0xFF007ACC), size: 18),
+                ),
               ),
-              child: const Icon(Icons.hub_outlined, color: Color(0xFF007ACC), size: 20),
             ),
             const SizedBox(width: 10),
             Column(
