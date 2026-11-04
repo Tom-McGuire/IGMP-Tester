@@ -441,6 +441,19 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
+IconData _getProtocolPresetIcon(ProtocolPreset preset) {
+  switch (preset.category) {
+    case 'Lighting':
+      return Icons.lightbulb_outline;
+    case 'Audio':
+      return Icons.volume_up_outlined;
+    case 'Video':
+      return Icons.videocam_outlined;
+    default:
+      return Icons.tune;
+  }
+}
+
 class _AddSenderStreamDialog extends StatefulWidget {
   final IgmpTesterViewModel vm;
   const _AddSenderStreamDialog({required this.vm});
@@ -456,6 +469,7 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
   late final TextEditingController _rateCtrl;
   late final TextEditingController _sizeCtrl;
   late final TextEditingController _ttlCtrl;
+  ProtocolPreset _selectedPreset = ProtocolPreset.custom;
   String? _errorText;
 
   @override
@@ -471,6 +485,21 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
     _rateCtrl = TextEditingController(text: '50');
     _sizeCtrl = TextEditingController(text: '256');
     _ttlCtrl = TextEditingController(text: '64');
+  }
+
+  void _onPresetChanged(ProtocolPreset? preset) {
+    if (preset == null) return;
+    setState(() {
+      _selectedPreset = preset;
+      if (preset != ProtocolPreset.custom) {
+        _nameCtrl.text = '${preset.name.split(' ').first} Stream ${widget.vm.senderConfig.streams.length + 1}';
+        _groupCtrl.text = preset.defaultGroup;
+        _portCtrl.text = preset.defaultPort.toString();
+        _rateCtrl.text = preset.packetsPerSecond.toString();
+        _sizeCtrl.text = preset.packetSizeBytes.toString();
+        _ttlCtrl.text = preset.defaultTtl.toString();
+      }
+    });
   }
 
   @override
@@ -549,76 +578,149 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
         ],
       ),
       content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (_errorText != null) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_errorText != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                  ),
+                  child: Text(
+                    _errorText!,
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                  ),
                 ),
-                child: Text(
-                  _errorText!,
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+              ],
+              DropdownButtonFormField<ProtocolPreset>(
+                initialValue: _selectedPreset,
+                decoration: const InputDecoration(
+                  labelText: 'Protocol Profile / Preset',
+                  prefixIcon: Icon(Icons.tune, size: 16),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
+                dropdownColor: const Color(0xFF252526),
+                isExpanded: true,
+                items: ProtocolPreset.all.map((p) {
+                  return DropdownMenuItem<ProtocolPreset>(
+                    value: p,
+                    child: Row(
+                      children: [
+                        Icon(_getProtocolPresetIcon(p), size: 14, color: const Color(0xFF4FC1FF)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            p.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: _onPresetChanged,
+              ),
+              if (_selectedPreset != ProtocolPreset.custom) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF252526),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: const Color(0xFF007ACC).withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _getProtocolPresetIcon(_selectedPreset),
+                        size: 16,
+                        color: const Color(0xFF4FC1FF),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _selectedPreset.description,
+                              style: const TextStyle(fontSize: 11, color: Colors.white70),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Target Bitrate: ~${_selectedPreset.approximateBitrateMbps.toStringAsFixed(2)} Mbps',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF4FC1FF),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(labelText: 'Stream Name', hintText: 'Stream 1'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _groupCtrl,
+                decoration: const InputDecoration(labelText: 'Multicast Group IP', hintText: '239.255.0.1'),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _portCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _ttlCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'TTL (Hops)', hintText: '64'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _rateCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Rate (PPS)', hintText: '50'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _sizeCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Size (Bytes)', hintText: '256'),
+                    ),
+                  ),
+                ],
               ),
             ],
-            TextField(
-              controller: _nameCtrl,
-              decoration: const InputDecoration(labelText: 'Stream Name', hintText: 'Stream 1'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _groupCtrl,
-              decoration: const InputDecoration(labelText: 'Multicast Group IP', hintText: '239.255.0.1'),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _portCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _ttlCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'TTL (Hops)', hintText: '64'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _rateCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Rate (PPS)', hintText: '50'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _sizeCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Size (Bytes)', hintText: '256'),
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
       actions: [
@@ -650,6 +752,7 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
   late final TextEditingController _portCtrl;
   late final TextEditingController _rateCtrl;
   late final TextEditingController _sizeCtrl;
+  ProtocolPreset _selectedPreset = ProtocolPreset.custom;
   bool _incrementPort = false;
   String? _errorText;
 
@@ -661,6 +764,19 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
     _portCtrl = TextEditingController(text: '5004');
     _rateCtrl = TextEditingController(text: '50');
     _sizeCtrl = TextEditingController(text: '256');
+  }
+
+  void _onPresetChanged(ProtocolPreset? preset) {
+    if (preset == null) return;
+    setState(() {
+      _selectedPreset = preset;
+      if (preset != ProtocolPreset.custom) {
+        _startIpCtrl.text = preset.defaultGroup;
+        _portCtrl.text = preset.defaultPort.toString();
+        _rateCtrl.text = preset.packetsPerSecond.toString();
+        _sizeCtrl.text = preset.packetSizeBytes.toString();
+      }
+    });
   }
 
   @override
@@ -734,6 +850,12 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final count = int.tryParse(_countCtrl.text.trim()) ?? 0;
+    final pps = int.tryParse(_rateCtrl.text.trim()) ?? 0;
+    final size = int.tryParse(_sizeCtrl.text.trim()) ?? 0;
+    final totalPps = count * pps;
+    final totalBandwidthMbps = (totalPps * size * 8) / 1000000.0;
+
     return AlertDialog(
       title: const Row(
         children: [
@@ -743,91 +865,178 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
         ],
       ),
       content: SizedBox(
-        width: 440,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Instantly generate multiple multicast streams across a block of addresses to test switch IGMP snooping table capacity and network saturation.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 14),
-            if (_errorText != null) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Instantly generate multiple multicast streams across a block of addresses to test switch IGMP snooping table capacity and network saturation.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              if (_errorText != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                  ),
+                  child: Text(
+                    _errorText!,
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                  ),
                 ),
-                child: Text(
-                  _errorText!,
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+              ],
+              DropdownButtonFormField<ProtocolPreset>(
+                initialValue: _selectedPreset,
+                decoration: const InputDecoration(
+                  labelText: 'Protocol Profile / Preset',
+                  prefixIcon: Icon(Icons.tune, size: 16),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                dropdownColor: const Color(0xFF252526),
+                isExpanded: true,
+                items: ProtocolPreset.all.map((p) {
+                  return DropdownMenuItem<ProtocolPreset>(
+                    value: p,
+                    child: Row(
+                      children: [
+                        Icon(_getProtocolPresetIcon(p), size: 14, color: const Color(0xFF4FC1FF)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            p.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: _onPresetChanged,
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF252526),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: const Color(0xFF007ACC).withValues(alpha: 0.4)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          _getProtocolPresetIcon(_selectedPreset),
+                          size: 16,
+                          color: const Color(0xFF4FC1FF),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _selectedPreset.description,
+                            style: const TextStyle(fontSize: 11, color: Colors.white70),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Text(
+                          'Aggregate Saturation: $totalPps pps',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF4FC1FF),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '(~${totalBandwidthMbps.toStringAsFixed(2)} Mbps total)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.greenAccent.shade400,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _countCtrl,
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(labelText: 'Stream Count (e.g. 10)', hintText: '10'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: _startIpCtrl,
+                      decoration: const InputDecoration(labelText: 'Starting Group IP', hintText: '239.255.0.1'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _portCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Base UDP Port', hintText: '5004'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _rateCtrl,
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(labelText: 'Rate per Stream (PPS)', hintText: '50'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _sizeCtrl,
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(labelText: 'Packet Size (Bytes)', hintText: '256'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Increment UDP port for each stream (port + 1)', style: TextStyle(fontSize: 12)),
+                value: _incrementPort,
+                onChanged: (val) {
+                  setState(() {
+                    _incrementPort = val ?? false;
+                  });
+                },
+              ),
             ],
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _countCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Stream Count (e.g. 10)', hintText: '10'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: _startIpCtrl,
-                    decoration: const InputDecoration(labelText: 'Starting Group IP', hintText: '239.255.0.1'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _portCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Base UDP Port', hintText: '5004'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _rateCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Rate per Stream (PPS)', hintText: '50'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _sizeCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Packet Size (Bytes)', hintText: '256'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Increment UDP port for each stream (port + 1)', style: TextStyle(fontSize: 12)),
-              value: _incrementPort,
-              onChanged: (val) {
-                setState(() {
-                  _incrementPort = val ?? false;
-                });
-              },
-            ),
-          ],
+          ),
         ),
       ),
       actions: [

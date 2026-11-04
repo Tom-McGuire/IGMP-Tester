@@ -572,6 +572,19 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
+IconData _getProtocolPresetIcon(ProtocolPreset preset) {
+  switch (preset.category) {
+    case 'Lighting':
+      return Icons.lightbulb_outline;
+    case 'Audio':
+      return Icons.volume_up_outlined;
+    case 'Video':
+      return Icons.videocam_outlined;
+    default:
+      return Icons.tune;
+  }
+}
+
 class _AddReceiverGroupDialog extends StatefulWidget {
   final IgmpTesterViewModel vm;
   const _AddReceiverGroupDialog({required this.vm});
@@ -584,6 +597,7 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _groupCtrl;
   late final TextEditingController _portCtrl;
+  ProtocolPreset _selectedPreset = ProtocolPreset.custom;
   String? _errorText;
 
   @override
@@ -596,6 +610,18 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
           : MulticastStreamConfig.incrementIp(widget.vm.receiverConfig.streams.last.groupAddress, 1),
     );
     _portCtrl = TextEditingController(text: '5004');
+  }
+
+  void _onPresetChanged(ProtocolPreset? preset) {
+    if (preset == null) return;
+    setState(() {
+      _selectedPreset = preset;
+      if (preset != ProtocolPreset.custom) {
+        _nameCtrl.text = '${preset.name.split(' ').first} Group ${widget.vm.receiverConfig.streams.length + 1}';
+        _groupCtrl.text = preset.defaultGroup;
+        _portCtrl.text = preset.defaultPort.toString();
+      }
+    });
   }
 
   @override
@@ -644,42 +670,101 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
         ],
       ),
       content: SizedBox(
-        width: 380,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (_errorText != null) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_errorText != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                  ),
+                  child: Text(
+                    _errorText!,
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                  ),
                 ),
-                child: Text(
-                  _errorText!,
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+              ],
+              DropdownButtonFormField<ProtocolPreset>(
+                initialValue: _selectedPreset,
+                decoration: const InputDecoration(
+                  labelText: 'Protocol Profile / Preset',
+                  prefixIcon: Icon(Icons.tune, size: 16),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
+                dropdownColor: const Color(0xFF252526),
+                isExpanded: true,
+                items: ProtocolPreset.all.map((p) {
+                  return DropdownMenuItem<ProtocolPreset>(
+                    value: p,
+                    child: Row(
+                      children: [
+                        Icon(_getProtocolPresetIcon(p), size: 14, color: const Color(0xFF4FC1FF)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            p.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: _onPresetChanged,
+              ),
+              if (_selectedPreset != ProtocolPreset.custom) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF252526),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: const Color(0xFF2196F3).withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _getProtocolPresetIcon(_selectedPreset),
+                        size: 16,
+                        color: const Color(0xFF4FC1FF),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _selectedPreset.description,
+                          style: const TextStyle(fontSize: 11, color: Colors.white70),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(labelText: 'Stream / Group Name', hintText: 'Group 1'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _groupCtrl,
+                decoration: const InputDecoration(labelText: 'Multicast Group IP', hintText: '239.255.0.1'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _portCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
               ),
             ],
-            TextField(
-              controller: _nameCtrl,
-              decoration: const InputDecoration(labelText: 'Stream / Group Name', hintText: 'Group 1'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _groupCtrl,
-              decoration: const InputDecoration(labelText: 'Multicast Group IP', hintText: '239.255.0.1'),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _portCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
-            ),
-          ],
+          ),
         ),
       ),
       actions: [
@@ -709,6 +794,7 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
   late final TextEditingController _countCtrl;
   late final TextEditingController _startIpCtrl;
   late final TextEditingController _portCtrl;
+  ProtocolPreset _selectedPreset = ProtocolPreset.custom;
   bool _incrementPort = false;
   String? _errorText;
 
@@ -718,6 +804,17 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
     _countCtrl = TextEditingController(text: '10');
     _startIpCtrl = TextEditingController(text: '239.255.0.1');
     _portCtrl = TextEditingController(text: '5004');
+  }
+
+  void _onPresetChanged(ProtocolPreset? preset) {
+    if (preset == null) return;
+    setState(() {
+      _selectedPreset = preset;
+      if (preset != ProtocolPreset.custom) {
+        _startIpCtrl.text = preset.defaultGroup;
+        _portCtrl.text = preset.defaultPort.toString();
+      }
+    });
   }
 
   @override
@@ -780,69 +877,128 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
         ],
       ),
       content: SizedBox(
-        width: 420,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Quickly subscribe to multiple multicast groups to test switch IGMP snooping tables, querier capacity, and selective group pruning.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 14),
-            if (_errorText != null) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                margin: const EdgeInsets.only(bottom: 10),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
-                ),
-                child: Text(
-                  _errorText!,
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
-                ),
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Quickly subscribe to multiple multicast groups to test switch IGMP snooping tables, querier capacity, and selective group pruning.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
-            ],
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _countCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Group Count', hintText: '10'),
+              const SizedBox(height: 12),
+              if (_errorText != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: _startIpCtrl,
-                    decoration: const InputDecoration(labelText: 'Starting Group IP', hintText: '239.255.0.1'),
+                  child: Text(
+                    _errorText!,
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _portCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Base UDP Port', hintText: '5004'),
-            ),
-            const SizedBox(height: 10),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Increment UDP port for each group (port + 1)', style: TextStyle(fontSize: 12)),
-              value: _incrementPort,
-              onChanged: (val) {
-                setState(() {
-                  _incrementPort = val ?? false;
-                });
-              },
-            ),
-          ],
+              DropdownButtonFormField<ProtocolPreset>(
+                initialValue: _selectedPreset,
+                decoration: const InputDecoration(
+                  labelText: 'Protocol Profile / Preset',
+                  prefixIcon: Icon(Icons.tune, size: 16),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                dropdownColor: const Color(0xFF252526),
+                isExpanded: true,
+                items: ProtocolPreset.all.map((p) {
+                  return DropdownMenuItem<ProtocolPreset>(
+                    value: p,
+                    child: Row(
+                      children: [
+                        Icon(_getProtocolPresetIcon(p), size: 14, color: const Color(0xFF4FC1FF)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            p.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: _onPresetChanged,
+              ),
+              if (_selectedPreset != ProtocolPreset.custom) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF252526),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: const Color(0xFF2196F3).withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _getProtocolPresetIcon(_selectedPreset),
+                        size: 16,
+                        color: const Color(0xFF4FC1FF),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _selectedPreset.description,
+                          style: const TextStyle(fontSize: 11, color: Colors.white70),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _countCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Group Count', hintText: '10'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: _startIpCtrl,
+                      decoration: const InputDecoration(labelText: 'Starting Group IP', hintText: '239.255.0.1'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _portCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Base UDP Port', hintText: '5004'),
+              ),
+              const SizedBox(height: 10),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Increment UDP port for each group (port + 1)', style: TextStyle(fontSize: 12)),
+                value: _incrementPort,
+                onChanged: (val) {
+                  setState(() {
+                    _incrementPort = val ?? false;
+                  });
+                },
+              ),
+            ],
+          ),
         ),
       ),
       actions: [
