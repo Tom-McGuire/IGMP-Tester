@@ -65,32 +65,42 @@ class SenderPanel extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 16),
 
                   // Add Stream button
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF007ACC).withValues(alpha: 0.22),
                       foregroundColor: const Color(0xFF4FC1FF),
-                      side: const BorderSide(color: Color(0xFF007ACC)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      minimumSize: Size.zero,
+                      side: const BorderSide(color: Color(0xFF007ACC), width: 1.2),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      minimumSize: const Size(0, 36),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
-                    icon: const Icon(Icons.add, size: 14),
-                    label: const Text('Add Stream', style: TextStyle(fontSize: 11)),
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text(
+                      'Add Stream',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                    ),
                     onPressed: isRunning ? null : () => _showAddStreamDialog(context, vm),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
 
                   // Batch Generator button
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF9800).withValues(alpha: 0.2),
                       foregroundColor: const Color(0xFFFFB74D),
-                      side: const BorderSide(color: Color(0xFFFF9800)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      minimumSize: Size.zero,
+                      side: const BorderSide(color: Color(0xFFFF9800), width: 1.2),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      minimumSize: const Size(0, 36),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
-                    icon: const Icon(Icons.auto_awesome_motion, size: 14),
-                    label: const Text('Batch Generator', style: TextStyle(fontSize: 11)),
+                    icon: const Icon(Icons.auto_awesome_motion, size: 16),
+                    label: const Text(
+                      'Batch Generator',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                    ),
                     onPressed: isRunning ? null : () => _showBatchDialog(context, vm),
                   ),
                 ],

@@ -66,32 +66,42 @@ class ReceiverPanel extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 16),
 
                   // Add Group button
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2196F3).withValues(alpha: 0.22),
                       foregroundColor: const Color(0xFF64B5F6),
-                      side: const BorderSide(color: Color(0xFF2196F3)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      minimumSize: Size.zero,
+                      side: const BorderSide(color: Color(0xFF2196F3), width: 1.2),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      minimumSize: const Size(0, 36),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
-                    icon: const Icon(Icons.add, size: 14),
-                    label: const Text('Add Group', style: TextStyle(fontSize: 11)),
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text(
+                      'Add Group',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                    ),
                     onPressed: isRunning ? null : () => _showAddGroupDialog(context, vm),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
 
                   // Batch Join Groups button
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF9800).withValues(alpha: 0.2),
                       foregroundColor: const Color(0xFFFFB74D),
-                      side: const BorderSide(color: Color(0xFFFF9800)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      minimumSize: Size.zero,
+                      side: const BorderSide(color: Color(0xFFFF9800), width: 1.2),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      minimumSize: const Size(0, 36),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
-                    icon: const Icon(Icons.auto_awesome_motion, size: 14),
-                    label: const Text('Batch Join', style: TextStyle(fontSize: 11)),
+                    icon: const Icon(Icons.auto_awesome_motion, size: 16),
+                    label: const Text(
+                      'Batch Join',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                    ),
                     onPressed: isRunning ? null : () => _showBatchGroupDialog(context, vm),
                   ),
                 ],
