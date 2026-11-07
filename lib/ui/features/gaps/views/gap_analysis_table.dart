@@ -61,78 +61,87 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
               bottom: BorderSide(color: Theme.of(context).dividerTheme.color ?? const Color(0xFF2C2C2C)),
             ),
           ),
-          child: Row(
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
             children: [
-              // Search input
-              SizedBox(
-                width: 300,
-                height: 34,
-                child: TextField(
-                  controller: _searchCtrl,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search, size: 16),
-                    hintText: 'Filter by stream, group, or sequence...',
-                    suffixIcon: _searchCtrl.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear, size: 14),
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              vm.setGapFilter('');
-                            },
-                          )
-                        : null,
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  // Search input
+                  SizedBox(
+                    width: 280,
+                    height: 34,
+                    child: TextField(
+                      controller: _searchCtrl,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search, size: 16),
+                        hintText: 'Filter by stream, group, or sequence...',
+                        suffixIcon: _searchCtrl.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 14),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  vm.setGapFilter('');
+                                },
+                              )
+                            : null,
+                      ),
+                      onChanged: (val) => vm.setGapFilter(val),
+                    ),
                   ),
-                  onChanged: (val) => vm.setGapFilter(val),
-                ),
-              ),
-              const SizedBox(width: 16),
 
-              // Gap statistics badges
-              _SummaryBadge(
-                label: 'Total Gaps',
-                value: stats.totalGaps.toString(),
-                color: stats.totalGaps > 0 ? const Color(0xFFFF9800) : const Color(0xFF4CAF50),
-              ),
-              const SizedBox(width: 8),
-              _SummaryBadge(
-                label: 'Packets Dropped',
-                value: stats.packetsLost.toString(),
-                color: stats.packetsLost > 0 ? const Color(0xFFF44336) : const Color(0xFF4CAF50),
-              ),
-              const SizedBox(width: 8),
-              _SummaryBadge(
-                label: 'Max Gap Duration',
-                value: '${stats.maxGapDurationMs.toStringAsFixed(1)} ms',
-                color: const Color(0xFFE91E63),
+                  // Gap statistics badges
+                  _SummaryBadge(
+                    label: 'Total Gaps',
+                    value: stats.totalGaps.toString(),
+                    color: stats.totalGaps > 0 ? const Color(0xFFFF9800) : const Color(0xFF4CAF50),
+                  ),
+                  _SummaryBadge(
+                    label: 'Packets Dropped',
+                    value: stats.packetsLost.toString(),
+                    color: stats.packetsLost > 0 ? const Color(0xFFF44336) : const Color(0xFF4CAF50),
+                  ),
+                  _SummaryBadge(
+                    label: 'Max Gap Duration',
+                    value: '${stats.maxGapDurationMs.toStringAsFixed(1)} ms',
+                    color: const Color(0xFFE91E63),
+                  ),
+                ],
               ),
 
-              const Spacer(),
-
-              // Export CSV Button
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF007ACC),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  minimumSize: Size.zero,
-                ),
-                icon: const Icon(Icons.download, size: 14),
-                label: const Text('Export CSV', style: TextStyle(fontSize: 12)),
-                onPressed: gaps.isEmpty ? null : () => _exportCsv(context, vm),
-              ),
-              const SizedBox(width: 8),
-
-              // Clear Button
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.grey,
-                  side: const BorderSide(color: Color(0xFF3E3E42)),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  minimumSize: Size.zero,
-                ),
-                icon: const Icon(Icons.delete_outline, size: 14),
-                label: const Text('Clear', style: TextStyle(fontSize: 12)),
-                onPressed: gaps.isEmpty ? null : () => vm.clearGaps(),
+              // Action Buttons
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF007ACC),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      minimumSize: Size.zero,
+                    ),
+                    icon: const Icon(Icons.download, size: 14),
+                    label: const Text('Export CSV', style: TextStyle(fontSize: 12)),
+                    onPressed: gaps.isEmpty ? null : () => _exportCsv(context, vm),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.grey,
+                      side: const BorderSide(color: Color(0xFF3E3E42)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      minimumSize: Size.zero,
+                    ),
+                    icon: const Icon(Icons.delete_outline, size: 14),
+                    label: const Text('Clear', style: TextStyle(fontSize: 12)),
+                    onPressed: gaps.isEmpty ? null : () => vm.clearGaps(),
+                  ),
+                ],
               ),
             ],
           ),

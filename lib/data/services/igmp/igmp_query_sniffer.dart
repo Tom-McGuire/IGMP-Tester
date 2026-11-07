@@ -237,6 +237,8 @@ class IgmpQuerySnifferService {
     _querierIp = null;
   }
 
+  void parseLineForTesting(String line) => _parseLine(line);
+
   void dispose() {
     stop();
     _queryEventsController.close();
