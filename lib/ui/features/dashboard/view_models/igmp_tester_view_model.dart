@@ -91,6 +91,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
   bool get isSenderRunning => _senderService.isRunning;
   bool get isReceiverRunning => _receiverService.isRunning;
   bool get isSnifferRunning => _snifferService.isRunning;
+  bool get isAnyRunning => isSenderRunning || isReceiverRunning || isSnifferRunning;
 
   bool isSenderStreamActive(String streamId) => _senderService.isStreamRunning(streamId);
   bool isReceiverStreamActive(String streamId) => _receiverService.isStreamRunning(streamId);
@@ -436,6 +437,46 @@ class IgmpTesterViewModel extends ChangeNotifier {
     final csv = generateGapsCsvContent();
     await _csvService.saveCsvToFile(filePath, csv);
     return filePath;
+  }
+
+  Future<void> startAll() async {
+    _clearError();
+    try {
+      final rawIface = _interfaceService.findRawInterface(_selectedInterface);
+      if (!isSenderRunning && _senderConfig.streams.any((s) => s.enabled)) {
+        await _senderService.startAll(
+          config: _senderConfig,
+          rawInterface: rawIface,
+        );
+      }
+      if (!isReceiverRunning && _receiverConfig.streams.any((s) => s.enabled)) {
+        await _receiverService.startAll(
+          config: _receiverConfig,
+          rawInterface: rawIface,
+        );
+        _gaps = _receiverService.gaps;
+        _rxThroughputHistory.clear();
+      }
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = 'Failed to start multicast test: $e';
+      notifyListeners();
+    }
+  }
+
+  void loadDemo() {
+    batchGenerateSenderStreams(
+      count: 10,
+      startingIp: '239.255.0.1',
+      basePort: 5004,
+      pps: 50,
+      packetSize: 256,
+    );
+    batchGenerateReceiverStreams(
+      count: 10,
+      startingIp: '239.255.0.1',
+      basePort: 5004,
+    );
   }
 
   Future<void> stopAll() async {
