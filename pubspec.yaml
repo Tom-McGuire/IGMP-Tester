@@ -2,7 +2,7 @@ name: igmp_tester
 description: "IGMP & Multicast Network Tester for Desktop (Windows, macOS, Linux)."
 publish_to: 'none'
 
-version: 0.5.3-Beta
+version: 0.5.4-Beta
 
 environment:
   sdk: ^3.13.5
