@@ -77,6 +77,8 @@ class ReceiverStats {
   final String? activeSessionId;
   final Duration duration;
   final int activeStreamsCount;
+  final int unsubscribedStreamsCount;
+  final int unsubscribedPacketsReceived;
 
   const ReceiverStats({
     this.streamId = '',
@@ -101,6 +103,8 @@ class ReceiverStats {
     this.activeSessionId,
     this.duration = Duration.zero,
     this.activeStreamsCount = 0,
+    this.unsubscribedStreamsCount = 0,
+    this.unsubscribedPacketsReceived = 0,
   });
 
   ReceiverStats copyWith({
@@ -126,6 +130,8 @@ class ReceiverStats {
     String? activeSessionId,
     Duration? duration,
     int? activeStreamsCount,
+    int? unsubscribedStreamsCount,
+    int? unsubscribedPacketsReceived,
   }) {
     return ReceiverStats(
       streamId: streamId ?? this.streamId,
@@ -150,6 +156,62 @@ class ReceiverStats {
       activeSessionId: activeSessionId ?? this.activeSessionId,
       duration: duration ?? this.duration,
       activeStreamsCount: activeStreamsCount ?? this.activeStreamsCount,
+      unsubscribedStreamsCount: unsubscribedStreamsCount ?? this.unsubscribedStreamsCount,
+      unsubscribedPacketsReceived: unsubscribedPacketsReceived ?? this.unsubscribedPacketsReceived,
+    );
+  }
+}
+
+class UnsubscribedStreamInfo {
+  final String groupAddress;
+  final int port;
+  final String sourceIp;
+  final String sessionId;
+  final int packetsReceived;
+  final int bytesReceived;
+  final double currentPps;
+  final double currentBitrateMbps;
+  final DateTime firstSeen;
+  final DateTime lastSeen;
+
+  const UnsubscribedStreamInfo({
+    required this.groupAddress,
+    required this.port,
+    required this.sourceIp,
+    required this.sessionId,
+    required this.packetsReceived,
+    required this.bytesReceived,
+    this.currentPps = 0.0,
+    this.currentBitrateMbps = 0.0,
+    required this.firstSeen,
+    required this.lastSeen,
+  });
+
+  String get endpoint => '$groupAddress:$port';
+
+  UnsubscribedStreamInfo copyWith({
+    String? groupAddress,
+    int? port,
+    String? sourceIp,
+    String? sessionId,
+    int? packetsReceived,
+    int? bytesReceived,
+    double? currentPps,
+    double? currentBitrateMbps,
+    DateTime? firstSeen,
+    DateTime? lastSeen,
+  }) {
+    return UnsubscribedStreamInfo(
+      groupAddress: groupAddress ?? this.groupAddress,
+      port: port ?? this.port,
+      sourceIp: sourceIp ?? this.sourceIp,
+      sessionId: sessionId ?? this.sessionId,
+      packetsReceived: packetsReceived ?? this.packetsReceived,
+      bytesReceived: bytesReceived ?? this.bytesReceived,
+      currentPps: currentPps ?? this.currentPps,
+      currentBitrateMbps: currentBitrateMbps ?? this.currentBitrateMbps,
+      firstSeen: firstSeen ?? this.firstSeen,
+      lastSeen: lastSeen ?? this.lastSeen,
     );
   }
 }

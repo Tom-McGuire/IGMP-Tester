@@ -128,7 +128,7 @@ void main() {
       expect(stats['rx_2']?.totalGaps, equals(0));
     });
 
-    test('drops datagrams for unsubscribed multicast groups on shared port', () {
+    test('drops datagrams for unsubscribed multicast groups on shared port and records them as unsubscribed traffic', () {
       final group1 = const MulticastReceiverStreamConfig(
         id: 'rx_1',
         name: 'Group 1',
@@ -150,6 +150,43 @@ void main() {
       final stats = receiverService.currentStreamStats;
 
       expect(stats['rx_1']?.packetsReceived, equals(0));
+      expect(receiverService.unsubscribedStreams.length, equals(1));
+      expect(receiverService.unsubscribedStreams.first.groupAddress, equals('239.255.99.99'));
+      expect(receiverService.unsubscribedStreams.first.port, equals(5004));
+      expect(receiverService.unsubscribedStreams.first.packetsReceived, equals(1));
+      expect(receiverService.currentStats.unsubscribedStreamsCount, equals(1));
+      expect(receiverService.currentStats.unsubscribedPacketsReceived, equals(1));
+
+      receiverService.clearUnsubscribedStreams();
+      expect(receiverService.unsubscribedStreams, isEmpty);
+      expect(receiverService.currentStats.unsubscribedStreamsCount, equals(0));
+    });
+
+    test('passive no-join stream records arriving packets as unsubscribed flood traffic', () {
+      final passiveStream = const MulticastReceiverStreamConfig(
+        id: 'rx_passive',
+        name: 'Passive Group',
+        groupAddress: '239.255.0.50',
+        port: 5004,
+        joinGroup: false,
+      );
+      receiverService.addStreamForTesting(passiveStream);
+
+      expect(receiverService.isStreamJoined('rx_passive'), isFalse);
+
+      final floodedDatagram = createDatagram(
+        destinationGroup: '239.255.0.50',
+        destinationPort: 5004,
+        sessionId: 'flood_sess',
+        seq: 1,
+      );
+      receiverService.processDatagramForTesting(floodedDatagram, 5004);
+      receiverService.recalculateStatsForTesting();
+
+      // Tracked both in the stream row and in the unsubscribed flood list
+      expect(receiverService.currentStreamStats['rx_passive']?.packetsReceived, equals(1));
+      expect(receiverService.unsubscribedStreams.length, equals(1));
+      expect(receiverService.unsubscribedStreams.first.groupAddress, equals('239.255.0.50'));
     });
 
     test('gaps list is capped at maxRetainedGaps (5000) and slides', () {

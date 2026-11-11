@@ -16,6 +16,7 @@ class _PooledSocket {
 class _ReceiverStreamContext {
   final MulticastReceiverStreamConfig config;
   final _PooledSocket pooledSocket;
+  final bool isJoined;
   final DateTime startTime;
   String? activeSessionId;
   int? firstSeq;
@@ -40,9 +41,36 @@ class _ReceiverStreamContext {
   _ReceiverStreamContext({
     required this.config,
     required this.pooledSocket,
+    required this.isJoined,
     required this.startTime,
     required this.lastSnapshotTime,
     required this.stats,
+  });
+}
+
+class _UnsubscribedStreamContext {
+  final String groupAddress;
+  final int port;
+  String sourceIp;
+  String sessionId;
+  int packetsReceived = 0;
+  int bytesReceived = 0;
+  int lastPacketsSnapshot = 0;
+  int bytesSinceSnapshot = 0;
+  DateTime lastSnapshotTime;
+  final DateTime firstSeen;
+  DateTime lastSeen;
+  UnsubscribedStreamInfo info;
+
+  _UnsubscribedStreamContext({
+    required this.groupAddress,
+    required this.port,
+    required this.sourceIp,
+    required this.sessionId,
+    required this.firstSeen,
+    required this.lastSeen,
+    required this.lastSnapshotTime,
+    required this.info,
   });
 }
 
@@ -50,6 +78,9 @@ class MulticastReceiverService {
   final Map<int, List<_PooledSocket>> _socketPoolByPort = {};
   final Map<String, _ReceiverStreamContext> _streams = {}; // streamId -> context
   final Map<String, String> _sessionToStreamId = {}; // sessionId -> streamId
+  final Map<String, _UnsubscribedStreamContext> _unsubscribedContexts = {}; // group:port -> context
+  List<UnsubscribedStreamInfo> _unsubscribedList = [];
+  final Set<int> _passiveServerPorts = {};
   final List<MulticastGapEvent> _allGaps = [];
   Timer? _statsTimer;
   NetworkInterface? _rawInterface;
@@ -66,7 +97,11 @@ class MulticastReceiverService {
   final _gapController = StreamController<MulticastGapEvent>.broadcast();
   Stream<MulticastGapEvent> get gapStream => _gapController.stream;
 
+  final _unsubscribedController = StreamController<List<UnsubscribedStreamInfo>>.broadcast();
+  Stream<List<UnsubscribedStreamInfo>> get unsubscribedStreamsStream => _unsubscribedController.stream;
+
   List<MulticastGapEvent> get gaps => List.unmodifiable(_allGaps);
+  List<UnsubscribedStreamInfo> get unsubscribedStreams => List.unmodifiable(_unsubscribedList);
 
   ReceiverStats _aggregateStats = const ReceiverStats();
   ReceiverStats get currentStats => _aggregateStats;
@@ -74,29 +109,25 @@ class MulticastReceiverService {
   Map<String, ReceiverStats> _streamStats = {};
   Map<String, ReceiverStats> get currentStreamStats => Map.unmodifiable(_streamStats);
 
-  bool get isRunning => _streams.isNotEmpty;
+  bool get isRunning => _streams.isNotEmpty || _passiveServerPorts.isNotEmpty;
+  bool get isPassiveServerRunning =>
+      _passiveServerPorts.isNotEmpty || _streams.values.any((s) => !s.isJoined);
+  Set<int> get activePassivePorts => Set.unmodifiable(_passiveServerPorts);
+
   bool isStreamRunning(String streamId) => _streams.containsKey(streamId);
+  bool isStreamJoined(String streamId) => _streams[streamId]?.isJoined ?? false;
 
-  Future<void> startStream({
-    required MulticastReceiverStreamConfig streamConfig,
-    NetworkInterface? rawInterface,
-    bool enableLoopback = true,
+  Future<_PooledSocket> _ensurePooledSocket({
+    required int port,
+    required bool enableLoopback,
+    String? groupForMembership,
   }) async {
-    if (_streams.containsKey(streamConfig.id)) {
-      await stopStream(streamConfig.id);
-    }
-
-    _rawInterface = rawInterface;
-
-    final targetGroup = InternetAddress(streamConfig.groupAddress);
-    final port = streamConfig.port;
-
-    // Get or allocate a pooled socket on this port that has space for another membership (< 16)
     final pool = _socketPoolByPort.putIfAbsent(port, () => []);
     _PooledSocket? pooled;
 
     for (final p in pool) {
-      if (p.joinedGroups.contains(streamConfig.groupAddress) ||
+      if (groupForMembership == null ||
+          p.joinedGroups.contains(groupForMembership) ||
           p.joinedGroups.length < maxMembershipsPerSocket) {
         pooled = p;
         break;
@@ -125,8 +156,75 @@ class MulticastReceiverService {
       });
     }
 
-    // Join multicast group on this socket - do not silently swallow exceptions
-    if (!pooled.joinedGroups.contains(streamConfig.groupAddress)) {
+    return pooled;
+  }
+
+  /// Starts a UDP listener on [port] WITHOUT joining any IGMP multicast group.
+  /// Any multicast test packets received on this socket indicate flooded / unsubscribed traffic.
+  Future<void> startPassiveServer({
+    required int port,
+    bool enableLoopback = true,
+  }) async {
+    await _ensurePooledSocket(
+      port: port,
+      enableLoopback: enableLoopback,
+    );
+    _passiveServerPorts.add(port);
+    _ensureStatsTimer();
+    _recalculateStats();
+  }
+
+  Future<void> stopPassiveServer([int? port]) async {
+    final portsToRemove = port != null ? <int>[port] : _passiveServerPorts.toList();
+    for (final p in portsToRemove) {
+      _passiveServerPorts.remove(p);
+      final pool = _socketPoolByPort[p];
+      if (pool != null) {
+        final toClose = pool
+            .where((pooled) => !_streams.values.any((s) => s.pooledSocket == pooled))
+            .toList();
+        for (final unused in toClose) {
+          pool.remove(unused);
+          try {
+            unused.socket?.close();
+          } catch (_) {}
+        }
+        if (pool.isEmpty) {
+          _socketPoolByPort.remove(p);
+        }
+      }
+    }
+    _recalculateStats();
+    if (!isRunning) {
+      _statsTimer?.cancel();
+      _statsTimer = null;
+    }
+  }
+
+  Future<void> startStream({
+    required MulticastReceiverStreamConfig streamConfig,
+    NetworkInterface? rawInterface,
+    bool enableLoopback = true,
+    bool passiveListenOnly = false,
+  }) async {
+    if (_streams.containsKey(streamConfig.id)) {
+      await stopStream(streamConfig.id);
+    }
+
+    _rawInterface = rawInterface;
+
+    final targetGroup = InternetAddress(streamConfig.groupAddress);
+    final port = streamConfig.port;
+    final shouldJoin = streamConfig.joinGroup && !passiveListenOnly;
+
+    final pooled = await _ensurePooledSocket(
+      port: port,
+      enableLoopback: enableLoopback,
+      groupForMembership: shouldJoin ? streamConfig.groupAddress : null,
+    );
+
+    // Only join multicast group on this socket if shouldJoin is true
+    if (shouldJoin && !pooled.joinedGroups.contains(streamConfig.groupAddress)) {
       try {
         pooled.socket?.joinMulticast(targetGroup, rawInterface);
       } catch (e) {
@@ -145,6 +243,7 @@ class MulticastReceiverService {
     final ctx = _ReceiverStreamContext(
       config: streamConfig,
       pooledSocket: pooled,
+      isJoined: shouldJoin,
       startTime: now,
       lastSnapshotTime: now,
       stats: ReceiverStats(
@@ -168,20 +267,74 @@ class MulticastReceiverService {
   }) async {
     _rawInterface = rawInterface;
 
-    for (final s in config.streams) {
-      if (s.enabled) {
-        await startStream(
-          streamConfig: s,
-          rawInterface: rawInterface,
-          enableLoopback: config.enableLoopback,
-        );
-      }
+    final enabledStreams = config.streams.where((s) => s.enabled).toList();
+
+    for (final s in enabledStreams) {
+      await startStream(
+        streamConfig: s,
+        rawInterface: rawInterface,
+        enableLoopback: config.enableLoopback,
+        passiveListenOnly: config.passiveListenOnly,
+      );
+    }
+
+    if (config.passiveListenOnly || enabledStreams.isEmpty) {
+      await startPassiveServer(
+        port: config.passiveListenPort,
+        enableLoopback: config.enableLoopback,
+      );
+    }
+  }
+
+  void _recordUnsubscribedPacket(
+    MulticastPacket packet,
+    Datagram datagram,
+    DateTime now,
+  ) {
+    final key = '${packet.destinationGroup}:${packet.destinationPort}';
+    final sourceIp = datagram.address.address;
+    final existing = _unsubscribedContexts[key];
+
+    if (existing == null) {
+      final initialInfo = UnsubscribedStreamInfo(
+        groupAddress: packet.destinationGroup,
+        port: packet.destinationPort,
+        sourceIp: sourceIp,
+        sessionId: packet.sessionId,
+        packetsReceived: 1,
+        bytesReceived: datagram.data.length,
+        firstSeen: now,
+        lastSeen: now,
+      );
+      final newCtx = _UnsubscribedStreamContext(
+        groupAddress: packet.destinationGroup,
+        port: packet.destinationPort,
+        sourceIp: sourceIp,
+        sessionId: packet.sessionId,
+        firstSeen: now,
+        lastSeen: now,
+        lastSnapshotTime: now,
+        info: initialInfo,
+      )
+        ..packetsReceived = 1
+        ..bytesReceived = datagram.data.length
+        ..bytesSinceSnapshot = datagram.data.length;
+      _unsubscribedContexts[key] = newCtx;
+    } else {
+      existing.packetsReceived++;
+      existing.bytesReceived += datagram.data.length;
+      existing.bytesSinceSnapshot += datagram.data.length;
+      existing.sourceIp = sourceIp;
+      existing.sessionId = packet.sessionId;
+      existing.lastSeen = now;
     }
   }
 
   void _processDatagram(Datagram datagram, int port) {
     final packet = MulticastPacket.decode(datagram.data);
     if (packet == null) return;
+
+    final now = DateTime.now();
 
     // Match stream context deterministically by destination group and destination port
     _ReceiverStreamContext? ctx;
@@ -207,11 +360,16 @@ class MulticastReceiverService {
       }
     }
 
-    // If no subscribed stream matches the packet's destination group and port, drop packet
+    // If no subscribed stream matches, or if the matched stream was started without an IGMP Join,
+    // record this packet as unsubscribed / flooded multicast traffic!
+    if (ctx == null || !ctx.isJoined) {
+      _recordUnsubscribedPacket(packet, datagram, now);
+    }
+
+    // If no configured stream matches the packet's destination group and port, do not attribute to subscribed streams
     if (ctx == null) return;
 
     ctx.bytesSinceSnapshot += datagram.data.length;
-    final now = DateTime.now();
     final nowUs = now.microsecondsSinceEpoch;
 
     // Jitter RFC 3550
@@ -305,24 +463,30 @@ class MulticastReceiverService {
       final targetGroup = InternetAddress(ctx.config.groupAddress);
       final pooled = ctx.pooledSocket;
 
-      // Check if any remaining streams on this pooled socket use the same group
-      final groupStillUsed = _streams.values.any(
-        (s) => s.pooledSocket == pooled && s.config.groupAddress == ctx.config.groupAddress,
-      );
+      if (ctx.isJoined) {
+        // Check if any remaining joined streams on this pooled socket use the same group
+        final groupStillUsed = _streams.values.any(
+          (s) =>
+              s.pooledSocket == pooled &&
+              s.isJoined &&
+              s.config.groupAddress == ctx.config.groupAddress,
+        );
 
-      if (!groupStillUsed) {
-        pooled.joinedGroups.remove(ctx.config.groupAddress);
-        try {
-          pooled.socket?.leaveMulticast(targetGroup, _rawInterface);
-        } catch (_) {
+        if (!groupStillUsed) {
+          pooled.joinedGroups.remove(ctx.config.groupAddress);
           try {
-            pooled.socket?.leaveMulticast(targetGroup);
-          } catch (_) {}
+            pooled.socket?.leaveMulticast(targetGroup, _rawInterface);
+          } catch (_) {
+            try {
+              pooled.socket?.leaveMulticast(targetGroup);
+            } catch (_) {}
+          }
         }
       }
 
-      // If no streams remain on this pooled socket, close and remove it
-      final socketStillUsed = _streams.values.any((s) => s.pooledSocket == pooled);
+      // If no streams remain on this pooled socket and it's not a passive server port, close and remove it
+      final socketStillUsed = _streams.values.any((s) => s.pooledSocket == pooled) ||
+          _passiveServerPorts.contains(port);
       if (!socketStillUsed) {
         _socketPoolByPort[port]?.remove(pooled);
         if (_socketPoolByPort[port]?.isEmpty ?? false) {
@@ -335,7 +499,7 @@ class MulticastReceiverService {
     }
 
     _recalculateStats();
-    if (_streams.isEmpty) {
+    if (!isRunning) {
       _statsTimer?.cancel();
       _statsTimer = null;
     }
@@ -359,6 +523,7 @@ class MulticastReceiverService {
       }
     }
     _socketPoolByPort.clear();
+    _passiveServerPorts.clear();
     _streams.clear();
     _sessionToStreamId.clear();
     _statsTimer?.cancel();
@@ -453,6 +618,38 @@ class MulticastReceiverService {
     _streamStats = updatedStreamStats;
     _streamStatsController.add(_streamStats);
 
+    // Update unsubscribed stream snapshots and bitrates
+    int totalUnsubscribedPackets = 0;
+    final updatedUnsubscribed = <UnsubscribedStreamInfo>[];
+    for (final uCtx in _unsubscribedContexts.values) {
+      final elapsedSec = (now.difference(uCtx.lastSnapshotTime).inMicroseconds / 1000000.0);
+      final validSec = elapsedSec > 0 ? elapsedSec : 0.5;
+
+      final ppsDelta = (uCtx.packetsReceived - uCtx.lastPacketsSnapshot) / validSec;
+      final bytesDelta = uCtx.bytesSinceSnapshot / validSec;
+      final mbps = (bytesDelta * 8.0) / 1000000.0;
+
+      uCtx.lastPacketsSnapshot = uCtx.packetsReceived;
+      uCtx.bytesSinceSnapshot = 0;
+      uCtx.lastSnapshotTime = now;
+
+      final updatedInfo = uCtx.info.copyWith(
+        sourceIp: uCtx.sourceIp,
+        sessionId: uCtx.sessionId,
+        packetsReceived: uCtx.packetsReceived,
+        bytesReceived: uCtx.bytesReceived,
+        currentPps: ppsDelta,
+        currentBitrateMbps: mbps,
+        lastSeen: uCtx.lastSeen,
+      );
+      uCtx.info = updatedInfo;
+      updatedUnsubscribed.add(updatedInfo);
+      totalUnsubscribedPackets += uCtx.packetsReceived;
+    }
+
+    _unsubscribedList = updatedUnsubscribed;
+    _unsubscribedController.add(_unsubscribedList);
+
     final globalLossPct = totalExp > 0
         ? ((totalLost / totalExp) * 100.0).clamp(0.0, 100.0)
         : 0.0;
@@ -475,8 +672,17 @@ class MulticastReceiverService {
       currentBitrateMbps: totalMbps,
       jitterMs: avgJitter,
       activeStreamsCount: _streams.length,
+      unsubscribedStreamsCount: _unsubscribedList.length,
+      unsubscribedPacketsReceived: totalUnsubscribedPackets,
     );
     _statsController.add(_aggregateStats);
+  }
+
+  void clearUnsubscribedStreams() {
+    _unsubscribedContexts.clear();
+    _unsubscribedList = [];
+    _unsubscribedController.add(_unsubscribedList);
+    _recalculateStats();
   }
 
   void clearGaps() {
@@ -495,11 +701,16 @@ class MulticastReceiverService {
   }
 
   // Testing hooks
-  void addStreamForTesting(MulticastReceiverStreamConfig streamConfig) {
+  void addStreamForTesting(
+    MulticastReceiverStreamConfig streamConfig, {
+    bool passiveListenOnly = false,
+  }) {
     final now = DateTime.now();
+    final shouldJoin = streamConfig.joinGroup && !passiveListenOnly;
     _streams[streamConfig.id] = _ReceiverStreamContext(
       config: streamConfig,
       pooledSocket: _PooledSocket(socket: null, port: streamConfig.port),
+      isJoined: shouldJoin,
       startTime: now,
       lastSnapshotTime: now,
       stats: ReceiverStats(
@@ -525,5 +736,6 @@ class MulticastReceiverService {
     _statsController.close();
     _streamStatsController.close();
     _gapController.close();
+    _unsubscribedController.close();
   }
 }

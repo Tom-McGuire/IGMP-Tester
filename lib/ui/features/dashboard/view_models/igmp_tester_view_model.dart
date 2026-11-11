@@ -25,6 +25,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
   StreamSubscription? _receiverSub;
   StreamSubscription? _receiverStreamSub;
   StreamSubscription? _gapSub;
+  StreamSubscription? _unsubscribedSub;
   StreamSubscription? _snifferSub;
   StreamSubscription? _snifferStatusSub;
   StreamSubscription? _watchdogSub;
@@ -72,6 +73,9 @@ class IgmpTesterViewModel extends ChangeNotifier {
   List<MulticastGapEvent> _gaps = [];
   List<MulticastGapEvent> get gaps => _gaps;
 
+  List<UnsubscribedStreamInfo> _unsubscribedStreams = [];
+  List<UnsubscribedStreamInfo> get unsubscribedStreams => _unsubscribedStreams;
+
   List<IgmpQueryEvent> _igmpEvents = [];
   List<IgmpQueryEvent> get igmpEvents => _igmpEvents;
 
@@ -90,11 +94,14 @@ class IgmpTesterViewModel extends ChangeNotifier {
 
   bool get isSenderRunning => _senderService.isRunning;
   bool get isReceiverRunning => _receiverService.isRunning;
+  bool get isPassiveServerRunning => _receiverService.isPassiveServerRunning;
+  Set<int> get activePassivePorts => _receiverService.activePassivePorts;
   bool get isSnifferRunning => _snifferService.isRunning;
   bool get isAnyRunning => isSenderRunning || isReceiverRunning || isSnifferRunning;
 
   bool isSenderStreamActive(String streamId) => _senderService.isStreamRunning(streamId);
   bool isReceiverStreamActive(String streamId) => _receiverService.isStreamRunning(streamId);
+  bool isReceiverStreamJoined(String streamId) => _receiverService.isStreamJoined(streamId);
 
   // Chart data points (last 40 samples)
   final List<double> _rxThroughputHistory = [];
@@ -130,6 +137,11 @@ class IgmpTesterViewModel extends ChangeNotifier {
 
     _gapSub = _receiverService.gapStream.listen((gap) {
       _gaps = _receiverService.gaps;
+      notifyListeners();
+    });
+
+    _unsubscribedSub = _receiverService.unsubscribedStreamsStream.listen((unsubList) {
+      _unsubscribedStreams = unsubList;
       notifyListeners();
     });
 
@@ -324,6 +336,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
           streamConfig: stream,
           rawInterface: rawIface,
           enableLoopback: _receiverConfig.enableLoopback,
+          passiveListenOnly: _receiverConfig.passiveListenOnly,
         );
         notifyListeners();
       } catch (e) {
@@ -331,6 +344,64 @@ class IgmpTesterViewModel extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  void toggleReceiverStreamJoinMode(String streamId) {
+    final stream = _receiverConfig.streams.firstWhere((s) => s.id == streamId);
+    updateReceiverStream(stream.copyWith(joinGroup: !stream.joinGroup));
+  }
+
+  void updateReceiverPassiveMode(bool passiveOnly) {
+    _receiverConfig = _receiverConfig.copyWith(passiveListenOnly: passiveOnly);
+    notifyListeners();
+  }
+
+  void updateReceiverPassivePort(int port) {
+    _receiverConfig = _receiverConfig.copyWith(passiveListenPort: port);
+    notifyListeners();
+  }
+
+  Future<void> togglePassiveServer({int? port}) async {
+    _clearError();
+    final targetPort = port ?? _receiverConfig.passiveListenPort;
+    if (_receiverService.activePassivePorts.contains(targetPort)) {
+      await _receiverService.stopPassiveServer(targetPort);
+      notifyListeners();
+    } else {
+      try {
+        await _receiverService.startPassiveServer(
+          port: targetPort,
+          enableLoopback: _receiverConfig.enableLoopback,
+        );
+        notifyListeners();
+      } catch (e) {
+        _errorMessage = 'Failed to start no-subscription passive server on port $targetPort: $e';
+        notifyListeners();
+      }
+    }
+  }
+
+  void subscribeToDetectedStream(UnsubscribedStreamInfo info) {
+    final alreadyExists = _receiverConfig.streams.any(
+      (s) => s.groupAddress == info.groupAddress && s.port == info.port,
+    );
+    if (!alreadyExists) {
+      addReceiverStream(
+        MulticastReceiverStreamConfig(
+          id: 'rx_detected_${DateTime.now().millisecondsSinceEpoch}',
+          name: 'Detected ${info.groupAddress}',
+          groupAddress: info.groupAddress,
+          port: info.port,
+          joinGroup: true,
+        ),
+      );
+    }
+  }
+
+  void clearUnsubscribedStreams() {
+    _receiverService.clearUnsubscribedStreams();
+    _unsubscribedStreams = [];
+    notifyListeners();
   }
 
   void batchGenerateReceiverStreams({
@@ -493,6 +564,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
     _receiverSub?.cancel();
     _receiverStreamSub?.cancel();
     _gapSub?.cancel();
+    _unsubscribedSub?.cancel();
     _snifferSub?.cancel();
     _snifferStatusSub?.cancel();
     _watchdogSub?.cancel();

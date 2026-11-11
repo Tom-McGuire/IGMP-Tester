@@ -213,6 +213,7 @@ class MulticastReceiverStreamConfig {
   final String groupAddress;
   final int port;
   final bool enabled;
+  final bool joinGroup;
 
   const MulticastReceiverStreamConfig({
     required this.id,
@@ -220,6 +221,7 @@ class MulticastReceiverStreamConfig {
     this.groupAddress = '239.255.0.1',
     this.port = 5004,
     this.enabled = true,
+    this.joinGroup = true,
   });
 
   String get endpoint => '$groupAddress:$port';
@@ -230,6 +232,7 @@ class MulticastReceiverStreamConfig {
     String? groupAddress,
     int? port,
     bool? enabled,
+    bool? joinGroup,
   }) {
     return MulticastReceiverStreamConfig(
       id: id ?? this.id,
@@ -237,6 +240,7 @@ class MulticastReceiverStreamConfig {
       groupAddress: groupAddress ?? this.groupAddress,
       port: (port ?? this.port).clamp(1, 65535),
       enabled: enabled ?? this.enabled,
+      joinGroup: joinGroup ?? this.joinGroup,
     );
   }
 }
@@ -279,11 +283,15 @@ class MulticastSenderConfig {
 class MulticastReceiverConfig {
   final NetworkInterfaceInfo? interface;
   final bool enableLoopback;
+  final bool passiveListenOnly;
+  final int passiveListenPort;
   final List<MulticastReceiverStreamConfig> streams;
 
   const MulticastReceiverConfig({
     this.interface,
     this.enableLoopback = true,
+    this.passiveListenOnly = false,
+    this.passiveListenPort = 5004,
     this.streams = const [
       MulticastReceiverStreamConfig(
         id: 'rx_stream_1',
@@ -298,11 +306,15 @@ class MulticastReceiverConfig {
   MulticastReceiverConfig copyWith({
     NetworkInterfaceInfo? interface,
     bool? enableLoopback,
+    bool? passiveListenOnly,
+    int? passiveListenPort,
     List<MulticastReceiverStreamConfig>? streams,
   }) {
     return MulticastReceiverConfig(
       interface: interface ?? this.interface,
       enableLoopback: enableLoopback ?? this.enableLoopback,
+      passiveListenOnly: passiveListenOnly ?? this.passiveListenOnly,
+      passiveListenPort: (passiveListenPort ?? this.passiveListenPort).clamp(1, 65535),
       streams: streams ?? this.streams,
     );
   }

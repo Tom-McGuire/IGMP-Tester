@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
 import '../../../../domain/models/multicast_config.dart';
+import '../../../../domain/models/multicast_stats.dart';
 import '../../dashboard/view_models/igmp_tester_view_model.dart';
 
 class ReceiverPanel extends StatelessWidget {
@@ -21,12 +22,71 @@ class ReceiverPanel extends StatelessWidget {
     );
   }
 
+  void _showPassivePortDialog(BuildContext context, IgmpTesterViewModel vm) {
+    final ctrl = TextEditingController(text: vm.receiverConfig.passiveListenPort.toString());
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.hearing_outlined, color: Color(0xFFFF9800), size: 20),
+            SizedBox(width: 8),
+            Text('Configure No-Subscription Server Port', style: TextStyle(fontSize: 15)),
+          ],
+        ),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Bind a UDP socket on this port WITHOUT sending an IGMP Join to test if the network switch floods unsubscribed multicast streams.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Passive Listener UDP Port',
+                  hintText: '5004',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF9800)),
+            onPressed: () {
+              final p = int.tryParse(ctrl.text.trim());
+              if (p != null && p >= 1 && p <= 65535) {
+                vm.updateReceiverPassivePort(p);
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Save Port', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<IgmpTesterViewModel>();
     final isRunning = vm.isReceiverRunning;
     final stats = vm.receiverStats;
     final streams = vm.receiverConfig.streams;
+    final passiveOnly = vm.receiverConfig.passiveListenOnly;
+    final passivePort = vm.receiverConfig.passiveListenPort;
+    final isPassivePortActive = vm.activePassivePorts.contains(passivePort);
+    final unsubscribed = vm.unsubscribedStreams;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -51,9 +111,42 @@ class ReceiverPanel extends StatelessWidget {
                   ),
                 ],
               ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
                 children: [
+                  // No-Join Mode switch
+                  Tooltip(
+                    message:
+                        'When enabled, binds UDP ports without sending IGMP Membership Reports to verify if switches flood multicast traffic',
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.shield_outlined,
+                          size: 14,
+                          color: passiveOnly ? const Color(0xFFFF9800) : Colors.grey,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'No-Join Mode:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: passiveOnly ? const Color(0xFFFFB74D) : Colors.grey,
+                            fontWeight: passiveOnly ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Switch(
+                          value: passiveOnly,
+                          activeThumbColor: const Color(0xFFFF9800),
+                          onChanged: isRunning ? null : (val) => vm.updateReceiverPassiveMode(val),
+                        ),
+                      ],
+                    ),
+                  ),
+
                   // Loopback switch
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -66,7 +159,6 @@ class ReceiverPanel extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(width: 16),
 
                   // Add Group button
                   ElevatedButton.icon(
@@ -85,7 +177,6 @@ class ReceiverPanel extends StatelessWidget {
                     ),
                     onPressed: isRunning ? null : () => _showAddGroupDialog(context, vm),
                   ),
-                  const SizedBox(width: 10),
 
                   // Batch Join Groups button
                   ElevatedButton.icon(
@@ -178,11 +269,11 @@ class ReceiverPanel extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               _MetricCard(
-                title: 'Duplicates / OoO',
-                value: '${stats.duplicatePackets} / ${stats.outOfOrderPackets}',
-                unit: 'frames',
-                icon: Icons.repeat,
-                color: Colors.grey,
+                title: 'Unsubscribed / Flooded',
+                value: '${unsubscribed.length} (${stats.unsubscribedPacketsReceived})',
+                unit: 'grps (pkts)',
+                icon: unsubscribed.isNotEmpty ? Icons.gpp_maybe : Icons.verified_user_outlined,
+                color: unsubscribed.isNotEmpty ? const Color(0xFFF44336) : const Color(0xFF4CAF50),
               ),
             ],
           ),
@@ -196,22 +287,40 @@ class ReceiverPanel extends StatelessWidget {
                   height: 42,
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isRunning ? const Color(0xFF8B0000) : const Color(0xFF2196F3),
+                      backgroundColor: isRunning
+                          ? const Color(0xFF8B0000)
+                          : (passiveOnly ? const Color(0xFFE65100) : const Color(0xFF2196F3)),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
-                    icon: Icon(isRunning ? Icons.stop : Icons.play_arrow, size: 18),
+                    icon: Icon(
+                      isRunning ? Icons.stop : (passiveOnly ? Icons.hearing : Icons.play_arrow),
+                      size: 18,
+                    ),
                     label: Text(
                       isRunning
                           ? 'LEAVE ALL MULTICAST GROUPS & STOP RECEIVERS'
-                          : 'JOIN ALL MULTICAST GROUPS (${streams.length}) & START RECEIVING',
+                          : (passiveOnly
+                              ? 'START PASSIVE RECEIVER (NO IGMP JOIN) ON ${streams.length} GROUP(S)'
+                              : 'JOIN ALL MULTICAST GROUPS (${streams.length}) & START RECEIVING'),
                       style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                     ),
-                    onPressed: streams.isEmpty ? null : () => vm.toggleReceiver(),
+                    onPressed: (streams.isEmpty && !passiveOnly) ? null : () => vm.toggleReceiver(),
                   ),
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 20),
+
+          // ==================== IGMP SNOOPING & UNSUBSCRIBED STREAM VERIFICATION ====================
+          _IgmpSnoopingVerificationCard(
+            vm: vm,
+            unsubscribed: unsubscribed,
+            isReceiverRunning: isRunning,
+            passivePort: passivePort,
+            isPassivePortActive: isPassivePortActive,
+            onConfigurePort: () => _showPassivePortDialog(context, vm),
           ),
           const SizedBox(height: 20),
 
@@ -286,6 +395,7 @@ class ReceiverPanel extends StatelessWidget {
                       final stream = streams[index];
                       final isStreamActive = vm.isReceiverStreamActive(stream.id);
                       final rStats = vm.streamReceiverStats[stream.id];
+                      final effectiveJoin = stream.joinGroup && !passiveOnly;
 
                       final lossPct = rStats?.lossRatePercent ?? 0.0;
                       Color lossColor = const Color(0xFF4CAF50);
@@ -308,7 +418,9 @@ class ReceiverPanel extends StatelessWidget {
                                 height: 8,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: isStreamActive ? const Color(0xFF2196F3) : const Color(0xFF555555),
+                                  color: isStreamActive
+                                      ? (effectiveJoin ? const Color(0xFF2196F3) : const Color(0xFFFF9800))
+                                      : const Color(0xFF555555),
                                 ),
                               ),
                             ),
@@ -322,19 +434,62 @@ class ReceiverPanel extends StatelessWidget {
                               ),
                             ),
 
-                            // Endpoint
+                            // Endpoint + Join Mode Badge
                             Expanded(
                               flex: 4,
                               child: Row(
                                 children: [
-                                  const Icon(Icons.hub, size: 13, color: Color(0xFF2196F3)),
+                                  Icon(
+                                    effectiveJoin ? Icons.hub : Icons.hearing,
+                                    size: 13,
+                                    color: effectiveJoin ? const Color(0xFF2196F3) : const Color(0xFFFF9800),
+                                  ),
                                   const SizedBox(width: 4),
-                                  Text(
-                                    stream.endpoint,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontFamily: 'monospace',
-                                      color: Color(0xFF64B5F6),
+                                  Flexible(
+                                    child: Text(
+                                      stream.endpoint,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontFamily: 'monospace',
+                                        color: Color(0xFF64B5F6),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  InkWell(
+                                    onTap: isStreamActive
+                                        ? null
+                                        : () => vm.toggleReceiverStreamJoinMode(stream.id),
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: Tooltip(
+                                      message: effectiveJoin
+                                          ? 'Sends IGMP Join (click when stopped to switch to No-Join passive test)'
+                                          : 'Passive Listen Only — No IGMP Join sent (click when stopped to enable IGMP Join)',
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                        decoration: BoxDecoration(
+                                          color: effectiveJoin
+                                              ? const Color(0xFF2196F3).withValues(alpha: 0.15)
+                                              : const Color(0xFFFF9800).withValues(alpha: 0.2),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(
+                                            color: effectiveJoin
+                                                ? const Color(0xFF2196F3).withValues(alpha: 0.5)
+                                                : const Color(0xFFFF9800).withValues(alpha: 0.6),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          effectiveJoin ? 'IGMP Join' : 'No Join',
+                                          style: TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: effectiveJoin
+                                                ? const Color(0xFF64B5F6)
+                                                : const Color(0xFFFFB74D),
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -412,7 +567,7 @@ class ReceiverPanel extends StatelessWidget {
                                       size: 18,
                                       color: isStreamActive ? const Color(0xFFF44336) : const Color(0xFF2196F3),
                                     ),
-                                    tooltip: isStreamActive ? 'Leave Group' : 'Join Group',
+                                    tooltip: isStreamActive ? 'Stop Stream' : (effectiveJoin ? 'Join Group' : 'Start Passive Listen'),
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                                     onPressed: () => vm.toggleIndividualReceiverStream(stream.id),
@@ -502,6 +657,304 @@ class ReceiverPanel extends StatelessWidget {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IgmpSnoopingVerificationCard extends StatelessWidget {
+  final IgmpTesterViewModel vm;
+  final List<UnsubscribedStreamInfo> unsubscribed;
+  final bool isReceiverRunning;
+  final int passivePort;
+  final bool isPassivePortActive;
+  final VoidCallback onConfigurePort;
+
+  const _IgmpSnoopingVerificationCard({
+    required this.vm,
+    required this.unsubscribed,
+    required this.isReceiverRunning,
+    required this.passivePort,
+    required this.isPassivePortActive,
+    required this.onConfigurePort,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasLeak = unsubscribed.isNotEmpty;
+
+    Color borderColor = const Color(0xFF2C2C2C);
+    Color headerBg = const Color(0xFF252526);
+    if (hasLeak) {
+      borderColor = const Color(0xFFF44336).withValues(alpha: 0.7);
+      headerBg = const Color(0xFFF44336).withValues(alpha: 0.15);
+    } else if (isReceiverRunning || isPassivePortActive) {
+      borderColor = const Color(0xFF4CAF50).withValues(alpha: 0.5);
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: borderColor, width: hasLeak ? 1.4 : 1.0),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header bar
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: headerBg,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(5),
+                topRight: Radius.circular(5),
+              ),
+            ),
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      hasLeak
+                          ? Icons.warning_amber_rounded
+                          : (isReceiverRunning ? Icons.verified_user : Icons.radar),
+                      size: 17,
+                      color: hasLeak
+                          ? const Color(0xFFFF5252)
+                          : (isReceiverRunning ? const Color(0xFF4CAF50) : const Color(0xFFFF9800)),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'IGMP Snooping & Unsubscribed Stream Verification',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: hasLeak
+                            ? const Color(0xFFF44336).withValues(alpha: 0.25)
+                            : (isReceiverRunning
+                                ? const Color(0xFF4CAF50).withValues(alpha: 0.2)
+                                : const Color(0xFF3E3E42).withValues(alpha: 0.5)),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        hasLeak
+                            ? 'FLOODING DETECTED (${unsubscribed.length} Unsubscribed)'
+                            : (isReceiverRunning ? 'IGMP Filtering Clean (0 Flooded)' : 'Standby'),
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          color: hasLeak
+                              ? const Color(0xFFFF8A80)
+                              : (isReceiverRunning ? const Color(0xFF81C784) : Colors.white70),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Port configuration chip
+                    InkWell(
+                      onTap: isPassivePortActive ? null : onConfigurePort,
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E1E1E),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: const Color(0xFF3E3E42)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.settings_ethernet, size: 13, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Port: $passivePort',
+                              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.white70),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // Start / Stop No-Subscription Server button
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isPassivePortActive
+                            ? const Color(0xFF8B0000)
+                            : const Color(0xFFFF9800).withValues(alpha: 0.22),
+                        foregroundColor: isPassivePortActive ? Colors.white : const Color(0xFFFFB74D),
+                        side: BorderSide(
+                          color: isPassivePortActive ? const Color(0xFFF44336) : const Color(0xFFFF9800),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        minimumSize: const Size(0, 30),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                      ),
+                      icon: Icon(isPassivePortActive ? Icons.stop : Icons.hearing, size: 14),
+                      label: Text(
+                        isPassivePortActive
+                            ? 'Stop No-Subscription Server (:$passivePort)'
+                            : 'Start No-Subscription Server (:$passivePort)',
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+                      ),
+                      onPressed: () => vm.togglePassiveServer(port: passivePort),
+                    ),
+
+                    if (hasLeak) ...[
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: const Size(0, 30),
+                        ),
+                        icon: const Icon(Icons.clear_all, size: 14),
+                        label: const Text('Clear Flood Log', style: TextStyle(fontSize: 11)),
+                        onPressed: () => vm.clearUnsubscribedStreams(),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Body
+          if (!hasLeak)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Text(
+                isPassivePortActive
+                    ? 'Passive No-Subscription Server is listening on UDP port $passivePort without an IGMP Join. Any test streams arriving here indicate IGMP Snooping is disabled or flooding on the network.'
+                    : 'Monitors open UDP receiver ports for multicast test streams that this host has NOT subscribed to (or streams started in No-Join mode). Start the No-Subscription Server to listen with zero IGMP joins.',
+                style: const TextStyle(fontSize: 11.5, color: Colors.grey),
+              ),
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  color: const Color(0xFFF44336).withValues(alpha: 0.08),
+                  child: const Text(
+                    '⚠️ Unsubscribed multicast traffic is reaching this interface! This indicates IGMP Snooping may be disabled on the switch, or an upstream port is flooding unknown multicast.',
+                    style: TextStyle(fontSize: 11.5, color: Color(0xFFFF8A80)),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  color: const Color(0xFF252526),
+                  child: const Row(
+                    children: [
+                      Expanded(flex: 3, child: Text('Flooded Group & Port', style: _headerStyle)),
+                      Expanded(flex: 3, child: Text('Sender Source IP', style: _headerStyle)),
+                      Expanded(flex: 2, child: Text('Session ID', style: _headerStyle)),
+                      Expanded(flex: 2, child: Text('Flooded Packets', style: _headerStyle)),
+                      Expanded(flex: 3, child: Text('Flood Bitrate / Rate', style: _headerStyle)),
+                      SizedBox(width: 110, child: Text('Action', style: _headerStyle)),
+                    ],
+                  ),
+                ),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: unsubscribed.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFF282828)),
+                  itemBuilder: (context, idx) {
+                    final item = unsubscribed[idx];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: Row(
+                              children: [
+                                const Icon(Icons.gpp_maybe, size: 14, color: Color(0xFFFF5252)),
+                                const SizedBox(width: 6),
+                                Text(
+                                  item.endpoint,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontFamily: 'monospace',
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFFF8A80),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              item.sourceIp,
+                              style: const TextStyle(fontSize: 11.5, fontFamily: 'monospace', color: Colors.white70),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              item.sessionId,
+                              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.grey),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              '${item.packetsReceived} pkts',
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              '${item.currentBitrateMbps.toStringAsFixed(2)} Mbps (${item.currentPps.toStringAsFixed(0)} pps)',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontFamily: 'monospace',
+                                color: Color(0xFFFFB74D),
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 110,
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                minimumSize: const Size(0, 26),
+                              ),
+                              icon: const Icon(Icons.add_link, size: 13),
+                              label: const Text('Add Group', style: TextStyle(fontSize: 10.5)),
+                              onPressed: () => vm.subscribeToDetectedStream(item),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -608,6 +1061,7 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
   late final TextEditingController _groupCtrl;
   late final TextEditingController _portCtrl;
   ProtocolPreset _selectedPreset = ProtocolPreset.custom;
+  bool _joinGroup = true;
   String? _errorText;
 
   @override
@@ -664,6 +1118,7 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
       name: _nameCtrl.text.trim().isEmpty ? 'Group' : _nameCtrl.text.trim(),
       groupAddress: group,
       port: port,
+      joinGroup: _joinGroup,
     );
     widget.vm.addReceiverStream(newStream);
     Navigator.pop(context);
@@ -772,6 +1227,21 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
                 controller: _portCtrl,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
+              ),
+              const SizedBox(height: 10),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text(
+                  'Send IGMP Join (uncheck to listen passively for flooding)',
+                  style: TextStyle(fontSize: 12),
+                ),
+                value: _joinGroup,
+                onChanged: (val) {
+                  setState(() {
+                    _joinGroup = val ?? true;
+                  });
+                },
               ),
             ],
           ),
