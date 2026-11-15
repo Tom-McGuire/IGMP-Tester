@@ -16,26 +16,37 @@ class QuerierStatus {
   final QuerierHealth health;
   final int? secondsSinceLastQuery;
   final String? querierIp;
+  final IgmpProtocolVersion querierVersion;
   final String statusMessage;
 
   const QuerierStatus({
     this.health = QuerierHealth.idle,
     this.secondsSinceLastQuery,
     this.querierIp,
+    this.querierVersion = IgmpProtocolVersion.unknown,
     this.statusMessage = 'Awaiting IGMP Query...',
   });
+
+  /// Human-readable protocol badge label (e.g., 'IGMPv3', 'IGMPv2', 'IGMPv1', 'Unknown').
+  String get displayBadge => querierVersion.label;
+
+  /// Whether the detected querier supports IGMPv3 Source-Specific Multicast (SSM).
+  bool get supportsSsm => querierVersion.supportsSsm;
 }
 
 class IgmpQuerierWatchdog {
   Timer? _timer;
   DateTime? _lastQueryTime;
   String? _querierIp;
+  IgmpProtocolVersion _detectedQuerierVersion = IgmpProtocolVersion.unknown;
 
   final _statusController = StreamController<QuerierStatus>.broadcast();
   Stream<QuerierStatus> get statusStream => _statusController.stream;
 
   QuerierStatus _currentStatus = const QuerierStatus();
   QuerierStatus get currentStatus => _currentStatus;
+
+  IgmpProtocolVersion get detectedQuerierVersion => _detectedQuerierVersion;
 
   void start() {
     _timer?.cancel();
@@ -48,15 +59,19 @@ class IgmpQuerierWatchdog {
     if (event.isQuery) {
       _lastQueryTime = event.timestamp;
       _querierIp = event.querierIp;
+      _detectedQuerierVersion = event.protocolVersion;
       _evaluate();
     }
   }
 
   void _evaluate() {
     if (_lastQueryTime == null) {
+      _detectedQuerierVersion = IgmpProtocolVersion.unknown;
       _currentStatus = const QuerierStatus(
         health: QuerierHealth.idle,
-        statusMessage: 'Waiting for network IGMP Queries (typical querier interval: 60s–125s)',
+        querierVersion: IgmpProtocolVersion.unknown,
+        statusMessage:
+            'Waiting for network IGMP Queries (typical querier interval: 60s–125s)',
       );
       _statusController.add(_currentStatus);
       return;
@@ -69,19 +84,29 @@ class IgmpQuerierWatchdog {
 
     if (diffSeconds <= 125) {
       health = QuerierHealth.active;
-      msg = 'Querier $_querierIp active (last query ${diffSeconds}s ago)';
+      final verTag = _detectedQuerierVersion != IgmpProtocolVersion.unknown
+          ? ' (${_detectedQuerierVersion.label})'
+          : '';
+      msg = 'Querier $_querierIp$verTag active (last query ${diffSeconds}s ago)';
     } else if (diffSeconds <= 260) {
       health = QuerierHealth.warning;
-      msg = 'Warning: Querier $_querierIp is late (${diffSeconds}s since last query)';
+      final verTag = _detectedQuerierVersion != IgmpProtocolVersion.unknown
+          ? ' (${_detectedQuerierVersion.label})'
+          : '';
+      msg =
+          'Warning: Querier $_querierIp$verTag is late (${diffSeconds}s since last query)';
     } else {
       health = QuerierHealth.critical;
-      msg = 'Critical: No IGMP query for ${diffSeconds}s! Multicast will be pruned by switches.';
+      _detectedQuerierVersion = IgmpProtocolVersion.unknown;
+      msg =
+          'Critical: No IGMP query for ${diffSeconds}s! Multicast will be pruned by switches.';
     }
 
     _currentStatus = QuerierStatus(
       health: health,
       secondsSinceLastQuery: diffSeconds,
       querierIp: _querierIp,
+      querierVersion: _detectedQuerierVersion,
       statusMessage: msg,
     );
     _statusController.add(_currentStatus);
@@ -95,6 +120,7 @@ class IgmpQuerierWatchdog {
   void reset() {
     _lastQueryTime = null;
     _querierIp = null;
+    _detectedQuerierVersion = IgmpProtocolVersion.unknown;
     _evaluate();
   }
 

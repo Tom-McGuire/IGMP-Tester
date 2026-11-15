@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
+import '../../../../domain/models/dscp_preset.dart';
 import '../../../../domain/models/multicast_config.dart';
 import '../../dashboard/view_models/igmp_tester_view_model.dart';
 
@@ -10,6 +11,17 @@ class SenderPanel extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => _AddSenderStreamDialog(vm: vm),
+    );
+  }
+
+  void _showEditStreamDialog(
+    BuildContext context,
+    IgmpTesterViewModel vm,
+    MulticastStreamConfig stream,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _AddSenderStreamDialog(vm: vm, existingStream: stream),
     );
   }
 
@@ -217,9 +229,10 @@ class SenderPanel extends StatelessWidget {
                       Expanded(flex: 4, child: Text('Multicast Group & Port', style: _headerStyle)),
                       Expanded(flex: 2, child: Text('Rate', style: _headerStyle)),
                       Expanded(flex: 2, child: Text('Payload', style: _headerStyle)),
+                      Expanded(flex: 2, child: Text('QoS / DSCP', style: _headerStyle)),
                       Expanded(flex: 2, child: Text('Bitrate', style: _headerStyle)),
                       Expanded(flex: 2, child: Text('Sent Pkts', style: _headerStyle)),
-                      SizedBox(width: 100, child: Text('Actions', style: _headerStyle)),
+                      SizedBox(width: 132, child: Text('Actions', style: _headerStyle)),
                     ],
                   ),
                 ),
@@ -309,6 +322,19 @@ class SenderPanel extends StatelessWidget {
                               ),
                             ),
 
+                            // QoS / DSCP Tag
+                            Expanded(
+                              flex: 2,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: _DscpTagPill(
+                                  preset: stream.dscpPreset,
+                                  socketApplied: isStreamActive ? sStats?.dscpSocketApplied : null,
+                                  warning: sStats?.dscpWarning,
+                                ),
+                              ),
+                            ),
+
                             // Bitrate
                             Expanded(
                               flex: 2,
@@ -335,29 +361,46 @@ class SenderPanel extends StatelessWidget {
 
                             // Actions
                             SizedBox(
-                              width: 100,
+                              width: 132,
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    visualDensity: VisualDensity.compact,
+                                    style: IconButton.styleFrom(
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      fixedSize: const Size(28, 28),
+                                      padding: EdgeInsets.zero,
+                                    ),
                                     icon: Icon(
                                       isStreamActive ? Icons.pause_circle_filled : Icons.play_circle_fill,
                                       size: 18,
                                       color: isStreamActive ? const Color(0xFFFF9800) : const Color(0xFF4CAF50),
                                     ),
                                     tooltip: isStreamActive ? 'Pause Stream' : 'Start Stream',
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                                     onPressed: () => vm.toggleIndividualSenderStream(stream.id),
                                   ),
                                   const SizedBox(width: 4),
                                   IconButton(
-                                    visualDensity: VisualDensity.compact,
+                                    style: IconButton.styleFrom(
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      fixedSize: const Size(28, 28),
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                    icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.grey),
+                                    tooltip: 'Edit Stream',
+                                    onPressed: isStreamActive
+                                        ? null
+                                        : () => _showEditStreamDialog(context, vm, stream),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  IconButton(
+                                    style: IconButton.styleFrom(
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      fixedSize: const Size(28, 28),
+                                      padding: EdgeInsets.zero,
+                                    ),
                                     icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
                                     tooltip: 'Remove Stream',
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                                     onPressed: isStreamActive ? null : () => vm.removeSenderStream(stream.id),
                                   ),
                                 ],
@@ -464,9 +507,87 @@ IconData _getProtocolPresetIcon(ProtocolPreset preset) {
   }
 }
 
+class _DscpTagPill extends StatelessWidget {
+  final DscpPreset preset;
+  final bool? socketApplied;
+  final String? warning;
+
+  const _DscpTagPill({
+    required this.preset,
+    this.socketApplied,
+    this.warning,
+  });
+
+  Color _pillColor() {
+    switch (preset) {
+      case DscpPreset.bestEffort:
+        return Colors.grey;
+      case DscpPreset.cs3:
+        return const Color(0xFF4FC1FF);
+      case DscpPreset.af41:
+        return const Color(0xFF81C784);
+      case DscpPreset.ef:
+        return const Color(0xFFFFB74D);
+      case DscpPreset.cs7:
+        return const Color(0xFFE57373);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _pillColor();
+    final hasSocketWarning = socketApplied == false && warning != null;
+    final tooltip = hasSocketWarning
+        ? '${preset.dropdownLabel}\nWarning: $warning'
+        : preset.dropdownLabel;
+
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: hasSocketWarning
+                ? const Color(0xFFFF9800)
+                : color.withValues(alpha: 0.45),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                preset.shortLabel,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+            if (hasSocketWarning) ...[
+              const SizedBox(width: 3),
+              const Icon(
+                Icons.warning_amber_rounded,
+                size: 11,
+                color: Color(0xFFFFB74D),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AddSenderStreamDialog extends StatefulWidget {
   final IgmpTesterViewModel vm;
-  const _AddSenderStreamDialog({required this.vm});
+  final MulticastStreamConfig? existingStream;
+  const _AddSenderStreamDialog({required this.vm, this.existingStream});
 
   @override
   State<_AddSenderStreamDialog> createState() => _AddSenderStreamDialogState();
@@ -480,21 +601,35 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
   late final TextEditingController _sizeCtrl;
   late final TextEditingController _ttlCtrl;
   ProtocolPreset _selectedPreset = ProtocolPreset.custom;
+  DscpPreset _selectedDscp = DscpPreset.bestEffort;
   String? _errorText;
+
+  bool get _isEditing => widget.existingStream != null;
 
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController(text: 'Stream ${widget.vm.senderConfig.streams.length + 1}');
-    _groupCtrl = TextEditingController(
-      text: widget.vm.senderConfig.streams.isEmpty
-          ? '239.255.0.1'
-          : MulticastStreamConfig.incrementIp(widget.vm.senderConfig.streams.last.groupAddress, 1),
-    );
-    _portCtrl = TextEditingController(text: '5004');
-    _rateCtrl = TextEditingController(text: '50');
-    _sizeCtrl = TextEditingController(text: '256');
-    _ttlCtrl = TextEditingController(text: '64');
+    final existing = widget.existingStream;
+    if (existing != null) {
+      _nameCtrl = TextEditingController(text: existing.name);
+      _groupCtrl = TextEditingController(text: existing.groupAddress);
+      _portCtrl = TextEditingController(text: existing.port.toString());
+      _rateCtrl = TextEditingController(text: existing.packetsPerSecond.toString());
+      _sizeCtrl = TextEditingController(text: existing.packetSizeBytes.toString());
+      _ttlCtrl = TextEditingController(text: existing.ttl.toString());
+      _selectedDscp = existing.dscpPreset;
+    } else {
+      _nameCtrl = TextEditingController(text: 'Stream ${widget.vm.senderConfig.streams.length + 1}');
+      _groupCtrl = TextEditingController(
+        text: widget.vm.senderConfig.streams.isEmpty
+            ? '239.255.0.1'
+            : MulticastStreamConfig.incrementIp(widget.vm.senderConfig.streams.last.groupAddress, 1),
+      );
+      _portCtrl = TextEditingController(text: '5004');
+      _rateCtrl = TextEditingController(text: '50');
+      _sizeCtrl = TextEditingController(text: '256');
+      _ttlCtrl = TextEditingController(text: '64');
+    }
   }
 
   void _onPresetChanged(ProtocolPreset? preset) {
@@ -564,27 +699,48 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
       return;
     }
 
-    final newStream = MulticastStreamConfig(
-      id: 'stream_${DateTime.now().millisecondsSinceEpoch}',
-      name: _nameCtrl.text.trim().isEmpty ? 'Stream' : _nameCtrl.text.trim(),
-      groupAddress: group,
-      port: port,
-      packetsPerSecond: rate,
-      packetSizeBytes: size,
-      ttl: ttl,
-    );
-    widget.vm.addSenderStream(newStream);
+    if (_isEditing) {
+      final updated = widget.existingStream!.copyWith(
+        name: _nameCtrl.text.trim().isEmpty ? 'Stream' : _nameCtrl.text.trim(),
+        groupAddress: group,
+        port: port,
+        packetsPerSecond: rate,
+        packetSizeBytes: size,
+        ttl: ttl,
+        dscpPreset: _selectedDscp,
+      );
+      widget.vm.updateSenderStream(updated);
+    } else {
+      final newStream = MulticastStreamConfig(
+        id: 'stream_${DateTime.now().millisecondsSinceEpoch}',
+        name: _nameCtrl.text.trim().isEmpty ? 'Stream' : _nameCtrl.text.trim(),
+        groupAddress: group,
+        port: port,
+        packetsPerSecond: rate,
+        packetSizeBytes: size,
+        ttl: ttl,
+        dscpPreset: _selectedDscp,
+      );
+      widget.vm.addSenderStream(newStream);
+    }
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.add_circle_outline, color: Color(0xFF007ACC), size: 20),
-          SizedBox(width: 8),
-          Text('Add Multicast Stream', style: TextStyle(fontSize: 15)),
+          Icon(
+            _isEditing ? Icons.edit_outlined : Icons.add_circle_outline,
+            color: const Color(0xFF007ACC),
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _isEditing ? 'Edit Multicast Stream' : 'Add Multicast Stream',
+            style: const TextStyle(fontSize: 15),
+          ),
         ],
       ),
       content: SizedBox(
@@ -729,6 +885,32 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
                   ),
                 ],
               ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<DscpPreset>(
+                initialValue: _selectedDscp,
+                decoration: const InputDecoration(
+                  labelText: 'QoS / DSCP Tag',
+                  prefixIcon: Icon(Icons.label_important_outline, size: 16),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                dropdownColor: const Color(0xFF252526),
+                isExpanded: true,
+                items: DscpPreset.values.map((preset) {
+                  return DropdownMenuItem<DscpPreset>(
+                    value: preset,
+                    child: Text(
+                      preset.dropdownLabel,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _selectedDscp = val);
+                  }
+                },
+              ),
             ],
           ),
         ),
@@ -741,7 +923,10 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF007ACC)),
           onPressed: _submit,
-          child: const Text('Add Stream', style: TextStyle(color: Colors.white)),
+          child: Text(
+            _isEditing ? 'Save Changes' : 'Add Stream',
+            style: const TextStyle(color: Colors.white),
+          ),
         ),
       ],
     );
@@ -763,6 +948,7 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
   late final TextEditingController _rateCtrl;
   late final TextEditingController _sizeCtrl;
   ProtocolPreset _selectedPreset = ProtocolPreset.custom;
+  DscpPreset _selectedDscp = DscpPreset.bestEffort;
   bool _incrementPort = false;
   String? _errorText;
 
@@ -854,6 +1040,7 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
       pps: pps,
       packetSize: size,
       incrementPort: _incrementPort,
+      dscpPreset: _selectedDscp,
     );
     Navigator.pop(context);
   }
@@ -1043,6 +1230,32 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
                   setState(() {
                     _incrementPort = val ?? false;
                   });
+                },
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<DscpPreset>(
+                initialValue: _selectedDscp,
+                decoration: const InputDecoration(
+                  labelText: 'QoS / DSCP Tag (all streams)',
+                  prefixIcon: Icon(Icons.label_important_outline, size: 16),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                dropdownColor: const Color(0xFF252526),
+                isExpanded: true,
+                items: DscpPreset.values.map((preset) {
+                  return DropdownMenuItem<DscpPreset>(
+                    value: preset,
+                    child: Text(
+                      preset.dropdownLabel,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() => _selectedDscp = val);
+                  }
                 },
               ),
             ],

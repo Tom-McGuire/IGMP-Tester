@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import '../../../domain/models/igmp_query_event.dart';
 import '../../../domain/models/network_interface_info.dart';
 
@@ -28,6 +29,9 @@ class IgmpQuerySnifferService {
   DateTime? get lastQueryTime => _lastQueryTime;
   String? _querierIp;
   String? get querierIp => _querierIp;
+  IgmpProtocolVersion _querierVersion = IgmpProtocolVersion.unknown;
+  IgmpProtocolVersion get querierVersion => _querierVersion;
+  String _activeInterfaceName = '';
 
   Future<String?> findTSharkPath() async {
     if (customTSharkPath != null && customTSharkPath!.isNotEmpty) {
@@ -99,6 +103,8 @@ class IgmpQuerySnifferService {
       return false;
     }
 
+    _activeInterfaceName = iface?.name ?? '';
+
     final args = <String>[
       '-l', // line-buffered stdout
       '-n', // no name resolution
@@ -112,6 +118,10 @@ class IgmpQuerySnifferService {
       '-e', 'igmp.max_resp',
       '-e', 'igmp.maddr',
       '-e', 'igmp.version',
+      '-e', 'igmp.qrv',
+      '-e', 'igmp.qqic',
+      '-e', 'igmp.s',
+      '-e', 'igmp.saddr',
     ];
 
     // Select interface if specified
@@ -155,6 +165,15 @@ class IgmpQuerySnifferService {
     }
   }
 
+  static int? _parseIntFlexible(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    if (trimmed.startsWith('0x') || trimmed.startsWith('0X')) {
+      return int.tryParse(trimmed.substring(2), radix: 16);
+    }
+    return int.tryParse(trimmed);
+  }
+
   void _parseLine(String line) {
     final parts = line.split('\t');
     if (parts.length < 4) return;
@@ -166,6 +185,10 @@ class IgmpQuerySnifferService {
     final maxRespRaw = parts.length > 4 ? parts[4].trim() : '';
     final maddr = parts.length > 5 ? parts[5].trim() : '';
     final ver = parts.length > 6 ? parts[6].trim() : '';
+    final qrvRaw = parts.length > 7 ? parts[7].trim() : '';
+    final qqicRaw = parts.length > 8 ? parts[8].trim() : '';
+    final sRaw = parts.length > 9 ? parts[9].trim() : '';
+    final saddrRaw = parts.length > 10 ? parts[10].trim() : '';
 
     DateTime ts = DateTime.now();
     final epoch = double.tryParse(epochStr);
@@ -177,21 +200,59 @@ class IgmpQuerySnifferService {
         int.tryParse(typeRaw) ??
         0;
 
-    String typeName = 'Unknown ($typeRaw)';
-    String typeHex = '0x${typeCode.toRadixString(16).padLeft(2, '0')}';
-    double maxRespSec = 0.0;
+    final maxRespRawInt = _parseIntFlexible(maxRespRaw);
+    final hasV3Fields =
+        qrvRaw.isNotEmpty || qqicRaw.isNotEmpty || sRaw.isNotEmpty || saddrRaw.isNotEmpty;
 
-    final maxRespDeci = int.tryParse(maxRespRaw) ?? 0;
-    maxRespSec = maxRespDeci / 10.0;
+    IgmpProtocolVersion protocolVersion = IgmpProtocolVersion.parse(ver);
+    if (typeCode == 0x11 && hasV3Fields) {
+      protocolVersion = IgmpProtocolVersion.igmpv3;
+    } else if (protocolVersion == IgmpProtocolVersion.unknown) {
+      if (typeCode == 0x22) {
+        protocolVersion = IgmpProtocolVersion.igmpv3;
+      } else if (typeCode == 0x12) {
+        protocolVersion = IgmpProtocolVersion.igmpv1;
+      } else if (typeCode == 0x16 || typeCode == 0x17) {
+        protocolVersion = IgmpProtocolVersion.igmpv2;
+      } else if (typeCode == 0x11) {
+        protocolVersion = maxRespRawInt == 0
+            ? IgmpProtocolVersion.igmpv1
+            : IgmpProtocolVersion.igmpv2;
+      }
+    }
+
+    final isV3 = protocolVersion == IgmpProtocolVersion.igmpv3;
+    final maxRespSec = maxRespRawInt != null
+        ? IgmpQueryEvent.decodeMaxRespSeconds(maxRespRawInt, isV3: isV3)
+        : 0.0;
+
+    final sourceAddresses = saddrRaw.isEmpty
+        ? const <String>[]
+        : saddrRaw
+            .split(',')
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList(growable: false);
+
+    final parsedQrv = isV3 ? _parseIntFlexible(qrvRaw) : null;
+    final qrv = parsedQrv != null ? (parsedQrv & 0x07) : null;
+    final parsedQqic = isV3 ? _parseIntFlexible(qqicRaw) : null;
+    final qqicSeconds =
+        parsedQqic != null ? IgmpQueryEvent.decodeQqic(parsedQqic) : null;
+    final sNorm = sRaw.toLowerCase();
+    final suppress = isV3 && (sNorm == '1' || sNorm == 'true');
+
+    String typeName = 'Unknown ($typeRaw)';
+    final String typeHex = '0x${typeCode.toRadixString(16).padLeft(2, '0')}';
 
     if (typeCode == 0x11) {
       if (maddr.isEmpty || maddr == '0.0.0.0' || dstIp == '224.0.0.1') {
         typeName = 'General Query';
+      } else if (sourceAddresses.isNotEmpty) {
+        typeName = 'Group-and-Source-Specific Query';
       } else {
         typeName = 'Group-Specific Query';
       }
-      _lastQueryTime = ts;
-      _querierIp = srcIp;
     } else if (typeCode == 0x12) {
       typeName = 'IGMPv1 Report';
     } else if (typeCode == 0x16) {
@@ -202,18 +263,39 @@ class IgmpQuerySnifferService {
       typeName = 'IGMPv3 Report';
     }
 
+    final versionLabel = protocolVersion != IgmpProtocolVersion.unknown
+        ? protocolVersion.label
+        : (ver.isEmpty ? 'Unknown' : ver);
+
     final event = IgmpQueryEvent(
       timestamp: ts,
       querierIp: srcIp,
       destinationIp: dstIp,
       typeHex: typeHex,
       typeName: typeName,
-      groupAddress: maddr.isEmpty ? (dstIp == '224.0.0.1' ? 'All Systems (224.0.0.1)' : dstIp) : maddr,
+      groupAddress: maddr.isEmpty
+          ? (dstIp == '224.0.0.1' ? 'All Systems (224.0.0.1)' : dstIp)
+          : maddr,
       maxRespTimeSeconds: maxRespSec,
-      version: ver.isEmpty ? (typeCode == 0x22 ? 'v3' : 'v2') : ver,
-      interfaceName: '',
+      version: versionLabel,
+      protocolVersion: protocolVersion,
+      qrv: qrv,
+      qqicSeconds: qqicSeconds,
+      suppressRouterProcessing: suppress,
+      sourceAddresses: List.unmodifiable(sourceAddresses),
+      interfaceName: _activeInterfaceName,
       rawSummary: line,
     );
+
+    _recordEvent(event);
+  }
+
+  void _recordEvent(IgmpQueryEvent event) {
+    if (event.isQuery) {
+      _lastQueryTime = event.timestamp;
+      _querierIp = event.querierIp;
+      _querierVersion = event.protocolVersion;
+    }
 
     _events.insert(0, event);
     if (_events.length > 1000) {
@@ -235,9 +317,31 @@ class IgmpQuerySnifferService {
     _events.clear();
     _lastQueryTime = null;
     _querierIp = null;
+    _querierVersion = IgmpProtocolVersion.unknown;
   }
 
   void parseLineForTesting(String line) => _parseLine(line);
+
+  /// Parses raw IGMP wire bytes into an [IgmpQueryEvent], recording and emitting it if valid.
+  IgmpQueryEvent? parseRawPayloadForTesting(
+    Uint8List payload, {
+    DateTime? timestamp,
+    String querierIp = '',
+    String? destinationIp,
+    String interfaceName = '',
+  }) {
+    final event = IgmpQueryEvent.fromRawIgmpBytes(
+      payload,
+      timestamp: timestamp,
+      querierIp: querierIp,
+      destinationIp: destinationIp,
+      interfaceName: interfaceName,
+    );
+    if (event != null) {
+      _recordEvent(event);
+    }
+    return event;
+  }
 
   void dispose() {
     stop();

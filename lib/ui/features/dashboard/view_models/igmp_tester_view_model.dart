@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import '../../../../domain/models/dscp_preset.dart';
+import '../../../../domain/models/flooded_stream_entry.dart';
 import '../../../../domain/models/igmp_query_event.dart';
 import '../../../../domain/models/multicast_config.dart';
 import '../../../../domain/models/multicast_gap_event.dart';
@@ -8,6 +10,7 @@ import '../../../../domain/models/network_interface_info.dart';
 import '../../../../data/services/export/csv_export_service.dart';
 import '../../../../data/services/igmp/igmp_querier_watchdog.dart';
 import '../../../../data/services/igmp/igmp_query_sniffer.dart';
+import '../../../../data/services/multicast/flooding_scanner_service.dart';
 import '../../../../data/services/multicast/multicast_receiver_service.dart';
 import '../../../../data/services/multicast/multicast_sender_service.dart';
 import '../../../../data/services/network/network_interface_service.dart';
@@ -18,6 +21,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
   final MulticastReceiverService _receiverService;
   final IgmpQuerySnifferService _snifferService;
   final IgmpQuerierWatchdog _watchdog;
+  final FloodingScannerService _floodingScannerService;
   final CsvExportService _csvService;
 
   StreamSubscription? _senderSub;
@@ -26,9 +30,11 @@ class IgmpTesterViewModel extends ChangeNotifier {
   StreamSubscription? _receiverStreamSub;
   StreamSubscription? _gapSub;
   StreamSubscription? _unsubscribedSub;
+  StreamSubscription? _leaveLatencySub;
   StreamSubscription? _snifferSub;
   StreamSubscription? _snifferStatusSub;
   StreamSubscription? _watchdogSub;
+  bool _scannerListenerAttached = false;
 
   IgmpTesterViewModel({
     NetworkInterfaceService? interfaceService,
@@ -36,13 +42,18 @@ class IgmpTesterViewModel extends ChangeNotifier {
     MulticastReceiverService? receiverService,
     IgmpQuerySnifferService? snifferService,
     IgmpQuerierWatchdog? watchdog,
+    FloodingScannerService? floodingScannerService,
     CsvExportService? csvService,
   })  : _interfaceService = interfaceService ?? NetworkInterfaceService(),
         _senderService = senderService ?? MulticastSenderService(),
         _receiverService = receiverService ?? MulticastReceiverService(),
         _snifferService = snifferService ?? IgmpQuerySnifferService(),
         _watchdog = watchdog ?? IgmpQuerierWatchdog(),
+        _floodingScannerService =
+            floodingScannerService ?? FloodingScannerService(),
         _csvService = csvService ?? CsvExportService() {
+    _floodingScannerService.addListener(_onFloodingScannerChanged);
+    _scannerListenerAttached = true;
     init();
   }
 
@@ -89,19 +100,125 @@ class IgmpTesterViewModel extends ChangeNotifier {
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
 
+  String? _dismissedDiagnosticWarning;
+  bool _measureFastLeave = false;
+  bool get measureFastLeave => _measureFastLeave;
+  LeaveLatencyResult? _lastLeaveLatency;
+  LeaveLatencyResult? get lastLeaveLatency =>
+      _lastLeaveLatency ?? _receiverService.lastLeaveLatency;
+  Map<String, LeaveLatencyResult> get leaveLatencyByStream =>
+      _receiverService.leaveLatencyByStream;
+
   String _gapFilter = '';
   String get gapFilter => _gapFilter;
 
+  FloodingScannerService get floodingScannerService => _floodingScannerService;
+  bool get isFloodingScanRunning => _floodingScannerService.isScanning;
+  List<FloodedStreamEntry> get floodedStreamEntries =>
+      _floodingScannerService.entries;
+  Set<String> get activeJoinedGroupKeys => _receiverConfig.streams
+      .where((s) => isReceiverStreamJoined(s.id))
+      .map((s) => s.endpoint)
+      .toSet();
+
   bool get isSenderRunning => _senderService.isRunning;
   bool get isReceiverRunning => _receiverService.isRunning;
+  bool get isMeasuringLeave => _receiverService.isMeasuringLeave;
   bool get isPassiveServerRunning => _receiverService.isPassiveServerRunning;
   Set<int> get activePassivePorts => _receiverService.activePassivePorts;
   bool get isSnifferRunning => _snifferService.isRunning;
-  bool get isAnyRunning => isSenderRunning || isReceiverRunning || isSnifferRunning;
+  bool get isAnyRunning =>
+      isSenderRunning || isReceiverRunning || isMeasuringLeave || isSnifferRunning;
 
   bool isSenderStreamActive(String streamId) => _senderService.isStreamRunning(streamId);
   bool isReceiverStreamActive(String streamId) => _receiverService.isStreamRunning(streamId);
   bool isReceiverStreamJoined(String streamId) => _receiverService.isStreamJoined(streamId);
+  bool isStreamMeasuringLeave(String streamId) =>
+      _receiverService.isStreamMeasuringLeave(streamId);
+
+  /// Actionable compatibility alert when an `SSM (S, G)` stream is configured
+  /// on a subnet whose active Querier only speaks IGMPv1 or IGMPv2.
+  String? get ssmCompatibilityWarning {
+    final hasSsm = _receiverConfig.streams.any((s) => s.enabled && s.isSsm);
+    if (!hasSsm) return null;
+    final qv = _querierStatus.querierVersion;
+    if (qv == IgmpProtocolVersion.igmpv1 || qv == IgmpProtocolVersion.igmpv2) {
+      return 'SSM (S, G) Compatibility Warning: Active Querier is speaking ${qv.label}, '
+          'which does not support IGMPv3 source filtering. Using software source filtering fallback.';
+    }
+    return null;
+  }
+
+  /// Non-blocking informational note when OS `IP_ADD_SOURCE_MEMBERSHIP` fell back
+  /// to `(*, G)` join with software source filtering on an active stream.
+  String? get ssmFallbackNote {
+    for (final rx in _streamReceiverStats.values) {
+      if (rx.ssmDiagnosticNote != null) return rx.ssmDiagnosticNote;
+    }
+    return _receiverStats.ssmDiagnosticNote;
+  }
+
+  /// QoS policy mismatch or OS `IP_TOS` warning when DSCP tags are stripped,
+  /// remarked, or rejected by the local socket layer.
+  String? get dscpPolicyWarning {
+    for (final s in _streamSenderStats.values) {
+      if (!s.dscpSocketApplied &&
+          s.dscpPreset != DscpPreset.bestEffort &&
+          s.dscpWarning != null) {
+        return 'QoS OS Socket Warning (${s.streamName}): ${s.dscpWarning}';
+      }
+    }
+    for (final rx in _streamReceiverStats.values) {
+      if (rx.dscpTransitStatus.isAlert) {
+        final expected = rx.expectedDscp ?? rx.senderDscpPreset;
+        final expectedLabel =
+            expected?.shortLabel ?? 'DSCP ${expected?.dscpValue ?? "?"}';
+        final observedLabel = rx.receivedDscp != null
+            ? DscpPreset.formatDscpBadge(rx.receivedDscp!)
+            : 'BE (0)';
+        if (rx.dscpTransitStatus == DscpTransitStatus.remarkedToZero) {
+          return 'QoS Policy Alert (${rx.streamName}): Sent $expectedLabel -> Received $observedLabel (QoS Stripped by Network)';
+        }
+        return 'QoS Policy Alert (${rx.streamName}): Sent $expectedLabel -> Received $observedLabel (QoS Remarked in Transit)';
+      }
+    }
+    if (_receiverStats.dscpTransitStatus.isAlert) {
+      final expected =
+          _receiverStats.expectedDscp ?? _receiverStats.senderDscpPreset;
+      final expectedLabel = expected?.shortLabel ?? 'Expected QoS';
+      final observedLabel = _receiverStats.receivedDscp != null
+          ? DscpPreset.formatDscpBadge(_receiverStats.receivedDscp!)
+          : 'BE (0)';
+      return 'QoS Policy Alert: Sent $expectedLabel -> Received $observedLabel';
+    }
+    return null;
+  }
+
+  String? get rawDiagnosticWarning =>
+      ssmCompatibilityWarning ?? dscpPolicyWarning;
+
+  /// Current active non-blocking diagnostic warning banner (unless dismissed).
+  String? get diagnosticWarning {
+    final raw = rawDiagnosticWarning;
+    if (raw == null) return null;
+    if (_dismissedDiagnosticWarning == raw) return null;
+    return raw;
+  }
+
+  void dismissDiagnosticWarning() {
+    _dismissedDiagnosticWarning = rawDiagnosticWarning;
+    notifyListeners();
+  }
+
+  void _syncDiagnosticDismissal() {
+    if (rawDiagnosticWarning == null) {
+      _dismissedDiagnosticWarning = null;
+    }
+  }
+
+  void _onFloodingScannerChanged() {
+    notifyListeners();
+  }
 
   // Chart data points (last 40 samples)
   final List<double> _rxThroughputHistory = [];
@@ -118,20 +235,24 @@ class IgmpTesterViewModel extends ChangeNotifier {
 
     _senderStreamSub = _senderService.streamStatsStream.listen((streamMap) {
       _streamSenderStats = streamMap;
+      _syncDiagnosticDismissal();
       notifyListeners();
     });
 
     _receiverSub = _receiverService.statsStream.listen((stats) {
       _receiverStats = stats;
+      _lastLeaveLatency = stats.lastLeaveLatency;
       _rxThroughputHistory.add(stats.currentBitrateMbps);
       if (_rxThroughputHistory.length > 40) {
         _rxThroughputHistory.removeAt(0);
       }
+      _syncDiagnosticDismissal();
       notifyListeners();
     });
 
     _receiverStreamSub = _receiverService.streamStatsStream.listen((streamMap) {
       _streamReceiverStats = streamMap;
+      _syncDiagnosticDismissal();
       notifyListeners();
     });
 
@@ -142,6 +263,11 @@ class IgmpTesterViewModel extends ChangeNotifier {
 
     _unsubscribedSub = _receiverService.unsubscribedStreamsStream.listen((unsubList) {
       _unsubscribedStreams = unsubList;
+      notifyListeners();
+    });
+
+    _leaveLatencySub = _receiverService.leaveLatencyStream.listen((result) {
+      _lastLeaveLatency = result;
       notifyListeners();
     });
 
@@ -160,6 +286,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
 
     _watchdogSub = _watchdog.statusStream.listen((status) {
       _querierStatus = status;
+      _syncDiagnosticDismissal();
       notifyListeners();
     });
 
@@ -256,6 +383,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
     required int pps,
     required int packetSize,
     bool incrementPort = false,
+    DscpPreset dscpPreset = DscpPreset.bestEffort,
   }) {
     final newStreams = <MulticastStreamConfig>[];
     for (int i = 0; i < count; i++) {
@@ -269,6 +397,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
           port: port,
           packetsPerSecond: pps,
           packetSizeBytes: packetSize,
+          dscpPreset: dscpPreset,
         ),
       );
     }
@@ -305,29 +434,98 @@ class IgmpTesterViewModel extends ChangeNotifier {
   void addReceiverStream(MulticastReceiverStreamConfig stream) {
     final list = List<MulticastReceiverStreamConfig>.from(_receiverConfig.streams)..add(stream);
     _receiverConfig = _receiverConfig.copyWith(streams: list);
+    _syncDiagnosticDismissal();
     notifyListeners();
   }
 
   void updateReceiverStream(MulticastReceiverStreamConfig stream) {
     final list = _receiverConfig.streams.map((s) => s.id == stream.id ? stream : s).toList();
     _receiverConfig = _receiverConfig.copyWith(streams: list);
+    _syncDiagnosticDismissal();
     notifyListeners();
   }
 
   void removeReceiverStream(String streamId) {
+    if (isStreamMeasuringLeave(streamId)) {
+      _receiverService.abortLeaveMeasurement(streamId);
+    }
     if (isReceiverStreamActive(streamId)) {
       _receiverService.stopStream(streamId);
     }
     final list = _receiverConfig.streams.where((s) => s.id != streamId).toList();
     _receiverConfig = _receiverConfig.copyWith(streams: list);
+    _syncDiagnosticDismissal();
+    notifyListeners();
+  }
+
+  void updateMeasureFastLeave(bool enabled) {
+    _measureFastLeave = enabled;
+    notifyListeners();
+  }
+
+  Future<LeaveLatencyResult?> leaveStreamWithMeasurement(
+    String streamId, {
+    Duration maxDrainDuration = MulticastReceiverService.defaultMaxDrainDuration,
+    Duration silenceTimeout = MulticastReceiverService.defaultSilenceTimeout,
+  }) async {
+    final future = _receiverService.leaveStreamWithMeasurement(
+      streamId,
+      maxDrainDuration: maxDrainDuration,
+      silenceTimeout: silenceTimeout,
+    );
+    _lastLeaveLatency = _receiverService.lastLeaveLatency;
+    notifyListeners();
+    final result = await future;
+    _lastLeaveLatency = result ?? _receiverService.lastLeaveLatency;
+    notifyListeners();
+    return result;
+  }
+
+  Future<List<LeaveLatencyResult>> leaveAllWithMeasurement({
+    Duration maxDrainDuration = MulticastReceiverService.defaultMaxDrainDuration,
+    Duration silenceTimeout = MulticastReceiverService.defaultSilenceTimeout,
+  }) async {
+    final future = _receiverService.leaveAllWithMeasurement(
+      maxDrainDuration: maxDrainDuration,
+      silenceTimeout: silenceTimeout,
+    );
+    _lastLeaveLatency = _receiverService.lastLeaveLatency;
+    notifyListeners();
+    final results = await future;
+    _lastLeaveLatency = _receiverService.lastLeaveLatency;
+    notifyListeners();
+    return results;
+  }
+
+  void abortLeaveMeasurement([String? streamId]) {
+    _receiverService.abortLeaveMeasurement(streamId);
+    _lastLeaveLatency = _receiverService.lastLeaveLatency;
+    notifyListeners();
+  }
+
+  void clearLeaveLatencyResults() {
+    _receiverService.clearLeaveLatencyResults();
+    _lastLeaveLatency = null;
+    _receiverStats = _receiverStats.copyWith(
+      clearLastLeaveLatency: true,
+      leaveLatencyByStream: const {},
+    );
     notifyListeners();
   }
 
   Future<void> toggleIndividualReceiverStream(String streamId) async {
     _clearError();
+    if (isStreamMeasuringLeave(streamId)) {
+      abortLeaveMeasurement(streamId);
+      return;
+    }
     if (isReceiverStreamActive(streamId)) {
-      await _receiverService.stopStream(streamId);
-      notifyListeners();
+      if (_measureFastLeave && isReceiverStreamJoined(streamId)) {
+        await leaveStreamWithMeasurement(streamId);
+      } else {
+        await _receiverService.stopStream(streamId);
+        notifyListeners();
+      }
     } else {
       final stream = _receiverConfig.streams.firstWhere((s) => s.id == streamId);
       try {
@@ -432,11 +630,72 @@ class IgmpTesterViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Adopts a discovered unjoined flooded multicast stream from [FloodingScannerService]
+  /// into the receiver group table and optionally joins + starts tracking it immediately.
+  Future<void> adoptFloodedStream(
+    FloodedStreamEntry entry, {
+    bool autoJoinAndStart = true,
+  }) async {
+    _clearError();
+    MulticastReceiverStreamConfig? targetStream;
+    for (final existing in _receiverConfig.streams) {
+      if (existing.groupAddress == entry.groupIp &&
+          existing.port == entry.destinationPort) {
+        targetStream = existing;
+        break;
+      }
+    }
+
+    if (targetStream == null) {
+      targetStream = MulticastReceiverStreamConfig(
+        id: 'rx_flood_${DateTime.now().millisecondsSinceEpoch}',
+        name: '${entry.protocolDisplay} ${entry.groupIp}',
+        groupAddress: entry.groupIp,
+        port: entry.destinationPort,
+        enabled: true,
+        joinGroup: true,
+      );
+      addReceiverStream(targetStream);
+    } else if (!targetStream.enabled || !targetStream.joinGroup) {
+      targetStream = targetStream.copyWith(enabled: true, joinGroup: true);
+      updateReceiverStream(targetStream);
+    }
+
+    if (autoJoinAndStart && !isReceiverStreamJoined(targetStream.id)) {
+      try {
+        final rawIface = _interfaceService.findRawInterface(
+          _receiverConfig.interface ?? _selectedInterface,
+        );
+        await _receiverService.startStream(
+          streamConfig: targetStream,
+          rawInterface: rawIface,
+          enableLoopback: _receiverConfig.enableLoopback,
+          passiveListenOnly: false,
+        );
+        notifyListeners();
+      } catch (e) {
+        _errorMessage = 'Failed to adopt and join ${entry.groupIp}: $e';
+        notifyListeners();
+      }
+    }
+  }
+
   Future<void> toggleReceiver() async {
     _clearError();
+    if (isMeasuringLeave) {
+      abortLeaveMeasurement();
+      return;
+    }
     if (isReceiverRunning) {
-      await _receiverService.stop();
-      notifyListeners();
+      if (_measureFastLeave) {
+        if (_receiverService.activePassivePorts.isNotEmpty) {
+          await _receiverService.stopPassiveServer();
+        }
+        await leaveAllWithMeasurement();
+      } else {
+        await _receiverService.stop();
+        notifyListeners();
+      }
     } else {
       try {
         final rawIface = _interfaceService.findRawInterface(_receiverConfig.interface ?? _selectedInterface);
@@ -485,6 +744,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
     _snifferService.clearEvents();
     _igmpEvents = [];
     _watchdog.reset();
+    _syncDiagnosticDismissal();
     notifyListeners();
   }
 
@@ -554,23 +814,31 @@ class IgmpTesterViewModel extends ChangeNotifier {
     await _senderService.stop();
     await _receiverService.stop();
     await _snifferService.stop();
+    await _floodingScannerService.stopScan();
     _watchdog.stop();
+    notifyListeners();
   }
 
   @override
   void dispose() {
+    if (_scannerListenerAttached) {
+      _floodingScannerService.removeListener(_onFloodingScannerChanged);
+      _scannerListenerAttached = false;
+    }
     _senderSub?.cancel();
     _senderStreamSub?.cancel();
     _receiverSub?.cancel();
     _receiverStreamSub?.cancel();
     _gapSub?.cancel();
     _unsubscribedSub?.cancel();
+    _leaveLatencySub?.cancel();
     _snifferSub?.cancel();
     _snifferStatusSub?.cancel();
     _watchdogSub?.cancel();
     _senderService.dispose();
     _receiverService.dispose();
     _snifferService.dispose();
+    _floodingScannerService.dispose();
     _watchdog.dispose();
     super.dispose();
   }

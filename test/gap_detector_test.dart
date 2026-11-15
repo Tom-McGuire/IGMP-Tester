@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:igmp_tester/domain/models/dscp_preset.dart';
 import 'package:igmp_tester/domain/models/multicast_config.dart';
 import 'package:igmp_tester/domain/models/multicast_gap_event.dart';
 import 'package:igmp_tester/domain/models/multicast_stats.dart';
@@ -155,6 +156,63 @@ void main() {
       } finally {
         await tempDir.delete(recursive: true);
       }
+    });
+
+    test('CSV Export includes Fast-Leave latency columns, summary lines, and DSCP telemetry', () {
+      final service = CsvExportService();
+      final now = DateTime(2026, 2, 1, 10, 0, 0);
+      final gaps = [
+        MulticastGapEvent(
+          id: 1,
+          sessionId: 'sess-leave',
+          streamName: 'Audio Feed',
+          groupAddress: '239.255.0.10',
+          port: 5004,
+          timestamp: now,
+          startSeq: 10,
+          endSeq: 12,
+          missingPackets: 2,
+          gapDuration: const Duration(milliseconds: 40),
+          lastPacketTime: now.subtract(const Duration(milliseconds: 40)),
+          resumedTime: now,
+        ),
+      ];
+
+      final leaveResult = LeaveLatencyResult(
+        streamId: 'rx_audio',
+        streamName: 'Audio Feed',
+        groupIp: '239.255.0.10',
+        port: 5004,
+        leaveIssuedAt: now,
+        lastPacketReceivedAt: now.add(const Duration(milliseconds: 28)),
+        leaveLatencyMs: 28,
+        trailingPacketsReceived: 2,
+        status: FastLeaveStatus.fastLeaveActive,
+        completedAt: now.add(const Duration(milliseconds: 528)),
+      );
+
+      final stats = ReceiverStats(
+        packetsReceived: 200,
+        expectedPackets: 202,
+        packetsLost: 2,
+        totalGaps: 1,
+        lastLeaveLatency: leaveResult,
+        leaveLatencyByStream: {'rx_audio': leaveResult},
+        expectedDscp: DscpPreset.ef,
+        receivedDscp: 0,
+        dscpTransitStatus: DscpTransitStatus.remarkedToZero,
+      );
+
+      final csv = service.generateGapsCsv(gaps: gaps, stats: stats);
+
+      expect(csv, contains('# Leave Latency (ms),28'));
+      expect(csv, contains('# Fast-Leave Status,Fast-Leave Active'));
+      expect(csv, contains('# Trailing Packets After Leave,2'));
+      expect(csv, contains('# Expected DSCP,EF (46)'));
+      expect(csv, contains('# Received DSCP,BE (0)'));
+      expect(csv, contains('# DSCP Transit Status,remarkedToZero'));
+      expect(csv, contains('Last_Leave_Latency_Ms,Fast_Leave_Status,Trailing_Packets_After_Leave'));
+      expect(csv, contains('28,Fast-Leave Active,2'));
     });
   });
 }

@@ -1,3 +1,100 @@
+import 'dscp_preset.dart';
+import 'multicast_config.dart';
+
+/// Classification of measured IGMP Fast-Leave / Immediate-Leave switch prune latency.
+enum FastLeaveStatus {
+  notMeasured('Not Measured'),
+  measuring('Measuring Leave...'),
+  fastLeaveActive('Fast-Leave Active'),
+  delayedPrune('Delayed Prune'),
+  noFastLeave('No Fast-Leave (Query Timeout)'),
+  aborted('Measurement Aborted');
+
+  final String label;
+  const FastLeaveStatus(this.label);
+
+  bool get isComplete =>
+      this == FastLeaveStatus.fastLeaveActive ||
+      this == FastLeaveStatus.delayedPrune ||
+      this == FastLeaveStatus.noFastLeave;
+
+  /// Classifies a measured post-leave prune latency in milliseconds:
+  /// - `0–50 ms`: [fastLeaveActive]
+  /// - `51–500 ms`: [delayedPrune]
+  /// - `> 500 ms`: [noFastLeave]
+  static FastLeaveStatus classifyLatency(int latencyMs) {
+    if (latencyMs <= 50) return FastLeaveStatus.fastLeaveActive;
+    if (latencyMs <= 500) return FastLeaveStatus.delayedPrune;
+    return FastLeaveStatus.noFastLeave;
+  }
+}
+
+/// Measured IGMP Fast-Leave latency telemetry for a multicast receiver stream.
+class LeaveLatencyResult {
+  final String streamId;
+  final String streamName;
+  final String groupIp;
+  final int port;
+  final DateTime leaveIssuedAt;
+  final DateTime? lastPacketReceivedAt;
+  final int leaveLatencyMs;
+  final int trailingPacketsReceived;
+  final int trailingBytesReceived;
+  final FastLeaveStatus status;
+  final bool aborted;
+  final DateTime? completedAt;
+
+  const LeaveLatencyResult({
+    this.streamId = '',
+    this.streamName = '',
+    required this.groupIp,
+    required this.port,
+    required this.leaveIssuedAt,
+    this.lastPacketReceivedAt,
+    required this.leaveLatencyMs,
+    this.trailingPacketsReceived = 0,
+    this.trailingBytesReceived = 0,
+    required this.status,
+    this.aborted = false,
+    this.completedAt,
+  });
+
+  String get endpoint => '$groupIp:$port';
+  String get streamKey => streamId.isNotEmpty ? streamId : endpoint;
+
+  LeaveLatencyResult copyWith({
+    String? streamId,
+    String? streamName,
+    String? groupIp,
+    int? port,
+    DateTime? leaveIssuedAt,
+    DateTime? lastPacketReceivedAt,
+    int? leaveLatencyMs,
+    int? trailingPacketsReceived,
+    int? trailingBytesReceived,
+    FastLeaveStatus? status,
+    bool? aborted,
+    DateTime? completedAt,
+  }) {
+    return LeaveLatencyResult(
+      streamId: streamId ?? this.streamId,
+      streamName: streamName ?? this.streamName,
+      groupIp: groupIp ?? this.groupIp,
+      port: port ?? this.port,
+      leaveIssuedAt: leaveIssuedAt ?? this.leaveIssuedAt,
+      lastPacketReceivedAt: lastPacketReceivedAt ?? this.lastPacketReceivedAt,
+      leaveLatencyMs: leaveLatencyMs ?? this.leaveLatencyMs,
+      trailingPacketsReceived:
+          trailingPacketsReceived ?? this.trailingPacketsReceived,
+      trailingBytesReceived:
+          trailingBytesReceived ?? this.trailingBytesReceived,
+      status: status ?? this.status,
+      aborted: aborted ?? this.aborted,
+      completedAt: completedAt ?? this.completedAt,
+    );
+  }
+}
+
 class SenderStats {
   final String streamId;
   final String streamName;
@@ -10,6 +107,9 @@ class SenderStats {
   final String activeSessionId;
   final Duration duration;
   final int activeStreamsCount;
+  final DscpPreset dscpPreset;
+  final bool dscpSocketApplied;
+  final String? dscpWarning;
 
   const SenderStats({
     this.streamId = '',
@@ -23,6 +123,9 @@ class SenderStats {
     this.activeSessionId = '',
     this.duration = Duration.zero,
     this.activeStreamsCount = 0,
+    this.dscpPreset = DscpPreset.bestEffort,
+    this.dscpSocketApplied = false,
+    this.dscpWarning,
   });
 
   SenderStats copyWith({
@@ -37,6 +140,9 @@ class SenderStats {
     String? activeSessionId,
     Duration? duration,
     int? activeStreamsCount,
+    DscpPreset? dscpPreset,
+    bool? dscpSocketApplied,
+    String? dscpWarning,
   }) {
     return SenderStats(
       streamId: streamId ?? this.streamId,
@@ -50,6 +156,9 @@ class SenderStats {
       activeSessionId: activeSessionId ?? this.activeSessionId,
       duration: duration ?? this.duration,
       activeStreamsCount: activeStreamsCount ?? this.activeStreamsCount,
+      dscpPreset: dscpPreset ?? this.dscpPreset,
+      dscpSocketApplied: dscpSocketApplied ?? this.dscpSocketApplied,
+      dscpWarning: dscpWarning ?? this.dscpWarning,
     );
   }
 }
@@ -79,6 +188,18 @@ class ReceiverStats {
   final int activeStreamsCount;
   final int unsubscribedStreamsCount;
   final int unsubscribedPacketsReceived;
+  final IgmpJoinMode joinMode;
+  final String? sourceFilterIp;
+  final bool ssmOsFilterApplied;
+  final String? ssmDiagnosticNote;
+  final LeaveLatencyResult? lastLeaveLatency;
+  final Map<String, LeaveLatencyResult> leaveLatencyByStream;
+  final DscpPreset? expectedDscp;
+  final int? receivedDscp;
+  final int? receivedTosByte;
+  final int? packetHintDscp;
+  final DscpPreset? senderDscpPreset;
+  final DscpTransitStatus dscpTransitStatus;
 
   const ReceiverStats({
     this.streamId = '',
@@ -105,6 +226,18 @@ class ReceiverStats {
     this.activeStreamsCount = 0,
     this.unsubscribedStreamsCount = 0,
     this.unsubscribedPacketsReceived = 0,
+    this.joinMode = IgmpJoinMode.asm,
+    this.sourceFilterIp,
+    this.ssmOsFilterApplied = false,
+    this.ssmDiagnosticNote,
+    this.lastLeaveLatency,
+    this.leaveLatencyByStream = const {},
+    this.expectedDscp,
+    this.receivedDscp,
+    this.receivedTosByte,
+    this.packetHintDscp,
+    this.senderDscpPreset,
+    this.dscpTransitStatus = DscpTransitStatus.unverified,
   });
 
   ReceiverStats copyWith({
@@ -132,6 +265,19 @@ class ReceiverStats {
     int? activeStreamsCount,
     int? unsubscribedStreamsCount,
     int? unsubscribedPacketsReceived,
+    IgmpJoinMode? joinMode,
+    String? sourceFilterIp,
+    bool? ssmOsFilterApplied,
+    String? ssmDiagnosticNote,
+    LeaveLatencyResult? lastLeaveLatency,
+    bool clearLastLeaveLatency = false,
+    Map<String, LeaveLatencyResult>? leaveLatencyByStream,
+    DscpPreset? expectedDscp,
+    int? receivedDscp,
+    int? receivedTosByte,
+    int? packetHintDscp,
+    DscpPreset? senderDscpPreset,
+    DscpTransitStatus? dscpTransitStatus,
   }) {
     return ReceiverStats(
       streamId: streamId ?? this.streamId,
@@ -158,6 +304,20 @@ class ReceiverStats {
       activeStreamsCount: activeStreamsCount ?? this.activeStreamsCount,
       unsubscribedStreamsCount: unsubscribedStreamsCount ?? this.unsubscribedStreamsCount,
       unsubscribedPacketsReceived: unsubscribedPacketsReceived ?? this.unsubscribedPacketsReceived,
+      joinMode: joinMode ?? this.joinMode,
+      sourceFilterIp: sourceFilterIp ?? this.sourceFilterIp,
+      ssmOsFilterApplied: ssmOsFilterApplied ?? this.ssmOsFilterApplied,
+      ssmDiagnosticNote: ssmDiagnosticNote ?? this.ssmDiagnosticNote,
+      lastLeaveLatency: clearLastLeaveLatency
+          ? null
+          : (lastLeaveLatency ?? this.lastLeaveLatency),
+      leaveLatencyByStream: leaveLatencyByStream ?? this.leaveLatencyByStream,
+      expectedDscp: expectedDscp ?? this.expectedDscp,
+      receivedDscp: receivedDscp ?? this.receivedDscp,
+      receivedTosByte: receivedTosByte ?? this.receivedTosByte,
+      packetHintDscp: packetHintDscp ?? this.packetHintDscp,
+      senderDscpPreset: senderDscpPreset ?? this.senderDscpPreset,
+      dscpTransitStatus: dscpTransitStatus ?? this.dscpTransitStatus,
     );
   }
 }

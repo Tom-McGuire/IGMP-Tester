@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -127,7 +127,9 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
                     ),
                     icon: const Icon(Icons.download, size: 14),
                     label: const Text('Export CSV', style: TextStyle(fontSize: 12)),
-                    onPressed: gaps.isEmpty ? null : () => _exportCsv(context, vm),
+                    onPressed: (gaps.isEmpty && vm.lastLeaveLatency == null)
+                        ? null
+                        : () => _exportCsv(context, vm),
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton.icon(

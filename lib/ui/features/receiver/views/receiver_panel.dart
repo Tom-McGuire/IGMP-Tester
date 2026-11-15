@@ -1,9 +1,12 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:material_ui/material_ui.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
+import '../../../../domain/models/dscp_preset.dart';
 import '../../../../domain/models/multicast_config.dart';
 import '../../../../domain/models/multicast_stats.dart';
 import '../../dashboard/view_models/igmp_tester_view_model.dart';
+import 'flooded_streams_sheet.dart';
 
 class ReceiverPanel extends StatelessWidget {
   const ReceiverPanel({super.key});
@@ -12,6 +15,35 @@ class ReceiverPanel extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => _AddReceiverGroupDialog(vm: vm),
+    );
+  }
+
+  void _showEditGroupDialog(
+    BuildContext context,
+    IgmpTesterViewModel vm,
+    MulticastReceiverStreamConfig stream,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _AddReceiverGroupDialog(vm: vm, existingStream: stream),
+    );
+  }
+
+  void _openFloodingScanner(BuildContext context, IgmpTesterViewModel vm) {
+    final ifaceIp = vm.selectedInterface?.ip;
+    final ifaceAddress =
+        (ifaceIp != null && ifaceIp.isNotEmpty) ? InternetAddress.tryParse(ifaceIp) : null;
+
+    FloodedStreamsSheet.showDialogModal(
+      context,
+      scannerService: vm.floodingScannerService,
+      alreadyJoinedGroups: vm.activeJoinedGroupKeys,
+      interfaceAddress: ifaceAddress,
+      autoStart: true,
+      onAdoptStream: (entry) async {
+        await Navigator.of(context).maybePop();
+        await vm.adoptFloodedStream(entry);
+      },
     );
   }
 
@@ -81,7 +113,9 @@ class ReceiverPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final vm = context.watch<IgmpTesterViewModel>();
     final isRunning = vm.isReceiverRunning;
+    final isMeasuringLeave = vm.isMeasuringLeave;
     final stats = vm.receiverStats;
+    final lastLeave = vm.lastLeaveLatency;
     final streams = vm.receiverConfig.streams;
     final passiveOnly = vm.receiverConfig.passiveListenOnly;
     final passivePort = vm.receiverConfig.passiveListenPort;
@@ -155,9 +189,50 @@ class ReceiverPanel extends StatelessWidget {
                       const SizedBox(width: 4),
                       Switch(
                         value: vm.receiverConfig.enableLoopback,
-                        onChanged: isRunning ? null : (val) => vm.updateReceiverLoopback(val),
+                        onChanged: (isRunning || isMeasuringLeave)
+                            ? null
+                            : (val) => vm.updateReceiverLoopback(val),
                       ),
                     ],
+                  ),
+
+                  // Fast-Leave Latency Measurement toggle
+                  Tooltip(
+                    message:
+                        'When enabled, leaving keeps UDP sockets open up to 3s to measure switch IGMP Fast-Leave prune latency',
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.timer_outlined,
+                          size: 14,
+                          color: vm.measureFastLeave
+                              ? const Color(0xFF10B981)
+                              : Colors.grey,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Fast-Leave Probe:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: vm.measureFastLeave
+                                ? const Color(0xFF6EE7B7)
+                                : Colors.grey,
+                            fontWeight: vm.measureFastLeave
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Switch(
+                          value: vm.measureFastLeave,
+                          activeThumbColor: const Color(0xFF10B981),
+                          onChanged: isMeasuringLeave
+                              ? null
+                              : (val) => vm.updateMeasureFastLeave(val),
+                        ),
+                      ],
+                    ),
                   ),
 
                   // Add Group button
@@ -175,7 +250,9 @@ class ReceiverPanel extends StatelessWidget {
                       'Add Group',
                       style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
                     ),
-                    onPressed: isRunning ? null : () => _showAddGroupDialog(context, vm),
+                    onPressed: (isRunning || isMeasuringLeave)
+                        ? null
+                        : () => _showAddGroupDialog(context, vm),
                   ),
 
                   // Batch Join Groups button
@@ -193,7 +270,33 @@ class ReceiverPanel extends StatelessWidget {
                       'Batch Join',
                       style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
                     ),
-                    onPressed: isRunning ? null : () => _showBatchGroupDialog(context, vm),
+                    onPressed: (isRunning || isMeasuringLeave)
+                        ? null
+                        : () => _showBatchGroupDialog(context, vm),
+                  ),
+
+                  // Scan Unjoined Traffic button
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF4DD0E1),
+                      side: BorderSide(
+                        color: vm.isFloodingScanRunning
+                            ? const Color(0xFF00BCD4)
+                            : const Color(0xFF26A69A),
+                        width: 1.2,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      minimumSize: const Size(0, 36),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    ),
+                    icon: const Icon(Icons.radar, size: 16),
+                    label: Text(
+                      vm.floodedStreamEntries.isNotEmpty
+                          ? 'Scan Unjoined Traffic (${vm.floodedStreamEntries.length})'
+                          : 'Scan Unjoined Traffic',
+                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                    ),
+                    onPressed: () => _openFloodingScanner(context, vm),
                   ),
                 ],
               ),
@@ -287,30 +390,62 @@ class ReceiverPanel extends StatelessWidget {
                   height: 42,
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isRunning
-                          ? const Color(0xFF8B0000)
-                          : (passiveOnly ? const Color(0xFFE65100) : const Color(0xFF2196F3)),
+                      backgroundColor: isMeasuringLeave
+                          ? const Color(0xFFD97706)
+                          : (isRunning
+                              ? const Color(0xFF8B0000)
+                              : (passiveOnly ? const Color(0xFFE65100) : const Color(0xFF2196F3))),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
                     icon: Icon(
-                      isRunning ? Icons.stop : (passiveOnly ? Icons.hearing : Icons.play_arrow),
+                      isMeasuringLeave
+                          ? Icons.hourglass_top_rounded
+                          : (isRunning
+                              ? Icons.stop
+                              : (passiveOnly ? Icons.hearing : Icons.play_arrow)),
                       size: 18,
                     ),
                     label: Text(
-                      isRunning
-                          ? 'LEAVE ALL MULTICAST GROUPS & STOP RECEIVERS'
-                          : (passiveOnly
-                              ? 'START PASSIVE RECEIVER (NO IGMP JOIN) ON ${streams.length} GROUP(S)'
-                              : 'JOIN ALL MULTICAST GROUPS (${streams.length}) & START RECEIVING'),
+                      isMeasuringLeave
+                          ? 'Measuring Leave...'
+                          : (isRunning
+                              ? 'LEAVE ALL MULTICAST GROUPS & STOP RECEIVERS'
+                              : (passiveOnly
+                                  ? 'START PASSIVE RECEIVER (NO IGMP JOIN) ON ${streams.length} GROUP(S)'
+                                  : 'JOIN ALL MULTICAST GROUPS (${streams.length}) & START RECEIVING')),
                       style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                     ),
-                    onPressed: (streams.isEmpty && !passiveOnly) ? null : () => vm.toggleReceiver(),
+                    onPressed: (!isMeasuringLeave && streams.isEmpty && !passiveOnly)
+                        ? null
+                        : () => vm.toggleReceiver(),
                   ),
                 ),
               ),
             ],
           ),
+          if (lastLeave != null ||
+              stats.dscpTransitStatus != DscpTransitStatus.unverified ||
+              stats.expectedDscp != null ||
+              stats.senderDscpPreset != null) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (lastLeave != null)
+                  _FastLeaveLatencyPill(
+                    result: lastLeave,
+                    onClear: isMeasuringLeave ? null : () => vm.clearLeaveLatencyResults(),
+                  ),
+                if (stats.dscpTransitStatus != DscpTransitStatus.unverified ||
+                    stats.expectedDscp != null ||
+                    stats.senderDscpPreset != null)
+                  _ReceiverQosPill(stats: stats),
+              ],
+            ),
+          ],
           const SizedBox(height: 20),
 
           // ==================== IGMP SNOOPING & UNSUBSCRIBED STREAM VERIFICATION ====================
@@ -370,7 +505,7 @@ class ReceiverPanel extends StatelessWidget {
                       Expanded(flex: 2, child: Text('Gaps', style: _headerStyle)),
                       Expanded(flex: 2, child: Text('Bitrate', style: _headerStyle)),
                       Expanded(flex: 2, child: Text('Jitter', style: _headerStyle)),
-                      SizedBox(width: 100, child: Text('Actions', style: _headerStyle)),
+                      SizedBox(width: 132, child: Text('Actions', style: _headerStyle)),
                     ],
                   ),
                 ),
@@ -394,6 +529,7 @@ class ReceiverPanel extends StatelessWidget {
                     itemBuilder: (context, index) {
                       final stream = streams[index];
                       final isStreamActive = vm.isReceiverStreamActive(stream.id);
+                      final isStreamMeasuring = vm.isStreamMeasuringLeave(stream.id);
                       final rStats = vm.streamReceiverStats[stream.id];
                       final effectiveJoin = stream.joinGroup && !passiveOnly;
 
@@ -418,47 +554,78 @@ class ReceiverPanel extends StatelessWidget {
                                 height: 8,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: isStreamActive
-                                      ? (effectiveJoin ? const Color(0xFF2196F3) : const Color(0xFFFF9800))
-                                      : const Color(0xFF555555),
+                                  color: isStreamMeasuring
+                                      ? const Color(0xFFD97706)
+                                      : (isStreamActive
+                                          ? (effectiveJoin ? const Color(0xFF2196F3) : const Color(0xFFFF9800))
+                                          : const Color(0xFF555555)),
                                 ),
                               ),
                             ),
 
-                            // Group Name
+                            // Group Name (+ optional SSM source filter or QoS note)
                             Expanded(
                               flex: 3,
-                              child: Text(
-                                stream.name,
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    stream.name,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                  if (stream.isSsm && stream.hasSourceFilter)
+                                    Text(
+                                      'src: ${stream.normalizedSourceIp}',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Color(0xFF4DD0E1),
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
+                                  if (rStats != null &&
+                                      rStats.dscpTransitStatus != DscpTransitStatus.unverified)
+                                    Text(
+                                      rStats.dscpTransitStatus == DscpTransitStatus.preserved
+                                          ? 'QoS Preserved (${DscpPreset.formatDscpBadge(rStats.receivedDscp!)})'
+                                          : 'QoS Alert (${rStats.receivedDscp != null ? DscpPreset.formatDscpBadge(rStats.receivedDscp!) : "Stripped"})',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: rStats.dscpTransitStatus == DscpTransitStatus.preserved
+                                            ? const Color(0xFF6EE7B7)
+                                            : const Color(0xFFFCA5A5),
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
 
-                            // Endpoint + Join Mode Badge
+                            // Endpoint + Join Mode Badges
                             Expanded(
                               flex: 4,
-                              child: Row(
+                              child: Wrap(
+                                spacing: 5,
+                                runSpacing: 3,
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
                                   Icon(
                                     effectiveJoin ? Icons.hub : Icons.hearing,
                                     size: 13,
                                     color: effectiveJoin ? const Color(0xFF2196F3) : const Color(0xFFFF9800),
                                   ),
-                                  const SizedBox(width: 4),
-                                  Flexible(
-                                    child: Text(
-                                      stream.endpoint,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontFamily: 'monospace',
-                                        color: Color(0xFF64B5F6),
-                                      ),
+                                  Text(
+                                    stream.endpoint,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontFamily: 'monospace',
+                                      color: Color(0xFF64B5F6),
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
                                   InkWell(
-                                    onTap: isStreamActive
+                                    onTap: (isStreamActive || isStreamMeasuring)
                                         ? null
                                         : () => vm.toggleReceiverStreamJoinMode(stream.id),
                                     borderRadius: BorderRadius.circular(4),
@@ -492,6 +659,30 @@ class ReceiverPanel extends StatelessWidget {
                                       ),
                                     ),
                                   ),
+                                  if (stream.isSsm)
+                                    Tooltip(
+                                      message: stream.hasSourceFilter
+                                          ? 'Source-Specific Multicast filter: ${stream.normalizedSourceIp}${rStats?.ssmDiagnosticNote != null ? "\n${rStats!.ssmDiagnosticNote}" : ""}'
+                                          : 'Source-Specific Multicast (S, G)',
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF00BCD4).withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(
+                                            color: const Color(0xFF00BCD4).withValues(alpha: 0.5),
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'SSM (S, G)',
+                                          style: TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF4DD0E1),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
@@ -556,30 +747,55 @@ class ReceiverPanel extends StatelessWidget {
 
                             // Actions
                             SizedBox(
-                              width: 100,
+                              width: 132,
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    visualDensity: VisualDensity.compact,
-                                    icon: Icon(
-                                      isStreamActive ? Icons.stop_circle_outlined : Icons.play_circle_fill,
-                                      size: 18,
-                                      color: isStreamActive ? const Color(0xFFF44336) : const Color(0xFF2196F3),
+                                    style: IconButton.styleFrom(
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      fixedSize: const Size(28, 28),
+                                      padding: EdgeInsets.zero,
                                     ),
-                                    tooltip: isStreamActive ? 'Stop Stream' : (effectiveJoin ? 'Join Group' : 'Start Passive Listen'),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                    icon: Icon(
+                                      isStreamMeasuring
+                                          ? Icons.hourglass_top_rounded
+                                          : (isStreamActive ? Icons.stop_circle_outlined : Icons.play_circle_fill),
+                                      size: 18,
+                                      color: isStreamMeasuring
+                                          ? const Color(0xFFD97706)
+                                          : (isStreamActive ? const Color(0xFFF44336) : const Color(0xFF2196F3)),
+                                    ),
+                                    tooltip: isStreamMeasuring
+                                        ? 'Abort Leave Measurement'
+                                        : (isStreamActive ? 'Stop Stream' : (effectiveJoin ? 'Join Group' : 'Start Passive Listen')),
                                     onPressed: () => vm.toggleIndividualReceiverStream(stream.id),
                                   ),
                                   const SizedBox(width: 4),
                                   IconButton(
-                                    visualDensity: VisualDensity.compact,
+                                    style: IconButton.styleFrom(
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      fixedSize: const Size(28, 28),
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                    icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.grey),
+                                    tooltip: 'Edit Group',
+                                    onPressed: (isStreamActive || isStreamMeasuring)
+                                        ? null
+                                        : () => _showEditGroupDialog(context, vm, stream),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  IconButton(
+                                    style: IconButton.styleFrom(
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      fixedSize: const Size(28, 28),
+                                      padding: EdgeInsets.zero,
+                                    ),
                                     icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
                                     tooltip: 'Remove Group',
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                                    onPressed: isStreamActive ? null : () => vm.removeReceiverStream(stream.id),
+                                    onPressed: (isStreamActive || isStreamMeasuring)
+                                        ? null
+                                        : () => vm.removeReceiverStream(stream.id),
                                   ),
                                 ],
                               ),
@@ -1048,9 +1264,144 @@ IconData _getProtocolPresetIcon(ProtocolPreset preset) {
   }
 }
 
+class _FastLeaveLatencyPill extends StatelessWidget {
+  final LeaveLatencyResult result;
+  final VoidCallback? onClear;
+
+  const _FastLeaveLatencyPill({required this.result, this.onClear});
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color;
+    final IconData icon;
+    final String text;
+
+    switch (result.status) {
+      case FastLeaveStatus.measuring:
+        color = const Color(0xFFD97706);
+        icon = Icons.hourglass_top_rounded;
+        text = 'Measuring Leave... (${result.trailingPacketsReceived} trailing)';
+      case FastLeaveStatus.fastLeaveActive:
+        color = const Color(0xFF10B981);
+        icon = Icons.bolt;
+        text = '${result.leaveLatencyMs} ms — Fast-Leave · ${result.trailingPacketsReceived} trailing';
+      case FastLeaveStatus.delayedPrune:
+        color = const Color(0xFFF59E0B);
+        icon = Icons.schedule;
+        text = '${result.leaveLatencyMs} ms — Delayed Prune · ${result.trailingPacketsReceived} trailing';
+      case FastLeaveStatus.noFastLeave:
+        color = const Color(0xFFEF4444);
+        icon = Icons.warning_amber_rounded;
+        text = '${result.leaveLatencyMs} ms — No Fast-Leave · ${result.trailingPacketsReceived} trailing';
+      case FastLeaveStatus.aborted:
+        color = Colors.grey;
+        icon = Icons.cancel_outlined;
+        text = 'Leave Measurement Aborted (${result.trailingPacketsReceived} trailing)';
+      case FastLeaveStatus.notMeasured:
+        color = Colors.grey;
+        icon = Icons.timer_off_outlined;
+        text = 'Fast-Leave Not Measured';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+          if (onClear != null) ...[
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: onClear,
+              child: Icon(Icons.close, size: 13, color: color),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ReceiverQosPill extends StatelessWidget {
+  final ReceiverStats stats;
+
+  const _ReceiverQosPill({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    final expected = stats.expectedDscp ?? stats.senderDscpPreset;
+    final expectedLabel = expected?.shortLabel ?? 'QoS';
+    final rxLabel = stats.receivedDscp != null
+        ? DscpPreset.formatDscpBadge(stats.receivedDscp!)
+        : 'Unverified';
+
+    final Color color;
+    final IconData icon;
+    final String label;
+
+    switch (stats.dscpTransitStatus) {
+      case DscpTransitStatus.preserved:
+        color = const Color(0xFF10B981);
+        icon = Icons.verified_outlined;
+        label = 'QoS Preserved · $rxLabel';
+      case DscpTransitStatus.remarkedToZero:
+        color = const Color(0xFFEF4444);
+        icon = Icons.gpp_bad_outlined;
+        label = 'QoS Stripped · Sent $expectedLabel -> Received $rxLabel';
+      case DscpTransitStatus.remarkedOrStripped:
+        color = const Color(0xFFF59E0B);
+        icon = Icons.warning_amber_rounded;
+        label = 'QoS Remarked · Sent $expectedLabel -> Received $rxLabel';
+      case DscpTransitStatus.unverified:
+        color = const Color(0xFF60A5FA);
+        icon = Icons.label_important_outline;
+        label = 'QoS Expect $expectedLabel (OS TOS Unverified)';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AddReceiverGroupDialog extends StatefulWidget {
   final IgmpTesterViewModel vm;
-  const _AddReceiverGroupDialog({required this.vm});
+  final MulticastReceiverStreamConfig? existingStream;
+  const _AddReceiverGroupDialog({required this.vm, this.existingStream});
 
   @override
   State<_AddReceiverGroupDialog> createState() => _AddReceiverGroupDialogState();
@@ -1060,20 +1411,37 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _groupCtrl;
   late final TextEditingController _portCtrl;
+  late final TextEditingController _sourceIpCtrl;
   ProtocolPreset _selectedPreset = ProtocolPreset.custom;
   bool _joinGroup = true;
+  IgmpJoinMode _joinMode = IgmpJoinMode.asm;
+  DscpPreset? _expectedDscp;
   String? _errorText;
+
+  bool get _isEditing => widget.existingStream != null;
 
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController(text: 'Group ${widget.vm.receiverConfig.streams.length + 1}');
-    _groupCtrl = TextEditingController(
-      text: widget.vm.receiverConfig.streams.isEmpty
-          ? '239.255.0.1'
-          : MulticastStreamConfig.incrementIp(widget.vm.receiverConfig.streams.last.groupAddress, 1),
-    );
-    _portCtrl = TextEditingController(text: '5004');
+    final existing = widget.existingStream;
+    if (existing != null) {
+      _nameCtrl = TextEditingController(text: existing.name);
+      _groupCtrl = TextEditingController(text: existing.groupAddress);
+      _portCtrl = TextEditingController(text: existing.port.toString());
+      _sourceIpCtrl = TextEditingController(text: existing.normalizedSourceIp);
+      _joinGroup = existing.joinGroup;
+      _joinMode = existing.joinMode;
+      _expectedDscp = existing.expectedDscp;
+    } else {
+      _nameCtrl = TextEditingController(text: 'Group ${widget.vm.receiverConfig.streams.length + 1}');
+      _groupCtrl = TextEditingController(
+        text: widget.vm.receiverConfig.streams.isEmpty
+            ? '239.255.0.1'
+            : MulticastStreamConfig.incrementIp(widget.vm.receiverConfig.streams.last.groupAddress, 1),
+      );
+      _portCtrl = TextEditingController(text: '5004');
+      _sourceIpCtrl = TextEditingController();
+    }
   }
 
   void _onPresetChanged(ProtocolPreset? preset) {
@@ -1093,6 +1461,7 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
     _nameCtrl.dispose();
     _groupCtrl.dispose();
     _portCtrl.dispose();
+    _sourceIpCtrl.dispose();
     super.dispose();
   }
 
@@ -1113,29 +1482,72 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
       return;
     }
 
-    final newStream = MulticastReceiverStreamConfig(
-      id: 'rx_stream_${DateTime.now().millisecondsSinceEpoch}',
-      name: _nameCtrl.text.trim().isEmpty ? 'Group' : _nameCtrl.text.trim(),
-      groupAddress: group,
-      port: port,
-      joinGroup: _joinGroup,
-    );
-    widget.vm.addReceiverStream(newStream);
+    String? sourceIp;
+    if (_joinMode == IgmpJoinMode.ssm) {
+      final candidate = _sourceIpCtrl.text.trim();
+      if (!MulticastReceiverStreamConfig.isValidUnicastSourceIp(candidate)) {
+        setState(() {
+          _errorText = 'SSM (S, G) requires a valid unicast IPv4 Source IP (e.g. 10.0.0.10)';
+        });
+        return;
+      }
+      sourceIp = candidate;
+    }
+
+    if (_isEditing) {
+      final updated = widget.existingStream!.copyWith(
+        name: _nameCtrl.text.trim().isEmpty ? 'Group' : _nameCtrl.text.trim(),
+        groupAddress: group,
+        port: port,
+        joinGroup: _joinGroup,
+        joinMode: _joinMode,
+        sourceFilterIp: sourceIp,
+        clearSourceFilterIp: _joinMode != IgmpJoinMode.ssm,
+        expectedDscp: _expectedDscp,
+        clearExpectedDscp: _expectedDscp == null,
+      );
+      widget.vm.updateReceiverStream(updated);
+    } else {
+      final newStream = MulticastReceiverStreamConfig(
+        id: 'rx_stream_${DateTime.now().millisecondsSinceEpoch}',
+        name: _nameCtrl.text.trim().isEmpty ? 'Group' : _nameCtrl.text.trim(),
+        groupAddress: group,
+        port: port,
+        joinGroup: _joinGroup,
+        joinMode: _joinMode,
+        sourceFilterIp: sourceIp,
+        expectedDscp: _expectedDscp,
+      );
+      widget.vm.addReceiverStream(newStream);
+    }
     Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
+    final showSsmRangeHint =
+        _joinMode == IgmpJoinMode.ssm &&
+        _groupCtrl.text.trim().isNotEmpty &&
+        MulticastStreamConfig.isValidMulticastIpv4(_groupCtrl.text.trim()) &&
+        !MulticastReceiverStreamConfig.isSsmGroupIpv4(_groupCtrl.text.trim());
+
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.add_circle_outline, color: Color(0xFF2196F3), size: 20),
-          SizedBox(width: 8),
-          Text('Add Multicast Group to Join', style: TextStyle(fontSize: 15)),
+          Icon(
+            _isEditing ? Icons.edit_outlined : Icons.add_circle_outline,
+            color: const Color(0xFF2196F3),
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _isEditing ? 'Edit Multicast Group' : 'Add Multicast Group to Join',
+            style: const TextStyle(fontSize: 15),
+          ),
         ],
       ),
       content: SizedBox(
-        width: 420,
+        width: 440,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1220,13 +1632,94 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
               const SizedBox(height: 10),
               TextField(
                 controller: _groupCtrl,
-                decoration: const InputDecoration(labelText: 'Multicast Group IP', hintText: '239.255.0.1'),
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: 'Multicast Group IP',
+                  hintText: _joinMode == IgmpJoinMode.ssm ? '232.0.1.1' : '239.255.0.1',
+                ),
               ),
+              if (showSsmRangeHint)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Tip: IANA designates 232.0.0.0/8 for standard IGMPv3 SSM groups.',
+                    style: TextStyle(fontSize: 10.5, color: Color(0xFF4DD0E1)),
+                  ),
+                ),
               const SizedBox(height: 10),
-              TextField(
-                controller: _portCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _portCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'UDP Port', hintText: '5004'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: DropdownButtonFormField<IgmpJoinMode>(
+                      initialValue: _joinMode,
+                      decoration: const InputDecoration(
+                        labelText: 'Join Mode',
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                      dropdownColor: const Color(0xFF252526),
+                      isExpanded: true,
+                      items: IgmpJoinMode.values.map((mode) {
+                        return DropdownMenuItem<IgmpJoinMode>(
+                          value: mode,
+                          child: Text(mode.label, style: const TextStyle(fontSize: 12)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() => _joinMode = val);
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              if (_joinMode == IgmpJoinMode.ssm) ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _sourceIpCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Source IP (SSM Filter)',
+                    hintText: '10.0.0.10 (232.0.0.0/8 SSM range recommended)',
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              DropdownButtonFormField<DscpPreset?>(
+                initialValue: _expectedDscp,
+                decoration: const InputDecoration(
+                  labelText: 'Expected QoS / DSCP',
+                  prefixIcon: Icon(Icons.label_important_outline, size: 16),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                dropdownColor: const Color(0xFF252526),
+                isExpanded: true,
+                items: [
+                  const DropdownMenuItem<DscpPreset?>(
+                    value: null,
+                    child: Text('Auto (Match Sender Tag)', style: TextStyle(fontSize: 12)),
+                  ),
+                  ...DscpPreset.values.map((preset) {
+                    return DropdownMenuItem<DscpPreset?>(
+                      value: preset,
+                      child: Text(
+                        preset.dropdownLabel,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    );
+                  }),
+                ],
+                onChanged: (val) {
+                  setState(() => _expectedDscp = val);
+                },
               ),
               const SizedBox(height: 10),
               CheckboxListTile(
@@ -1255,7 +1748,10 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
           onPressed: _submit,
-          child: const Text('Add Group', style: TextStyle(color: Colors.white)),
+          child: Text(
+            _isEditing ? 'Save Changes' : 'Add Group',
+            style: const TextStyle(color: Colors.white),
+          ),
         ),
       ],
     );

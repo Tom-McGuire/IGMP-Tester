@@ -1,5 +1,5 @@
 import 'dart:ui' show AppExitResponse;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 import '../../gaps/views/gap_analysis_table.dart';
 import '../../igmp_monitor/views/igmp_query_log_table.dart';
@@ -46,6 +46,7 @@ class _IgmpTesterHomeScreenState extends State<IgmpTesterHomeScreen>
   Widget build(BuildContext context) {
     final vm = context.watch<IgmpTesterViewModel>();
     final errorMsg = vm.errorMessage;
+    final warningMsg = vm.diagnosticWarning;
 
     return Scaffold(
       body: Column(
@@ -58,6 +59,14 @@ class _IgmpTesterHomeScreenState extends State<IgmpTesterHomeScreen>
             GlobalErrorBanner(
               errorMessage: errorMsg,
               onDismiss: () => vm.dismissError(),
+            ),
+
+          // Non-blocking Diagnostic Compatibility / QoS Warning Banner
+          if (warningMsg != null)
+            GlobalErrorBanner(
+              errorMessage: warningMsg,
+              isWarning: true,
+              onDismiss: () => vm.dismissDiagnosticWarning(),
             ),
 
           // Navigation Tab Bar

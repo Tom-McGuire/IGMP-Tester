@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:igmp_tester/domain/models/dscp_preset.dart';
 import 'package:igmp_tester/domain/models/igmp_query_event.dart';
 import 'package:igmp_tester/domain/models/multicast_config.dart';
 import 'package:igmp_tester/domain/models/multicast_stats.dart';
@@ -206,6 +207,79 @@ void main() {
       const rxConfig = MulticastReceiverConfig();
       expect(rxConfig.streams, isNotEmpty);
       expect(rxConfig.enableLoopback, isTrue);
+    });
+
+    test('MulticastStreamConfig dscpPreset and MulticastReceiverStreamConfig SSM/DSCP helpers', () {
+      const tx = MulticastStreamConfig(
+        id: 'tx_qos',
+        name: 'EF Audio',
+        dscpPreset: DscpPreset.ef,
+      );
+      expect(tx.dscpPreset, equals(DscpPreset.ef));
+      expect(tx.copyWith(dscpPreset: DscpPreset.af41).dscpPreset, equals(DscpPreset.af41));
+
+      expect(IgmpJoinMode.asm.isAsm, isTrue);
+      expect(IgmpJoinMode.ssm.isSsm, isTrue);
+      expect(MulticastReceiverStreamConfig.isSsmGroupIpv4('232.1.2.3'), isTrue);
+      expect(MulticastReceiverStreamConfig.isSsmGroupIpv4('239.1.2.3'), isFalse);
+      expect(MulticastReceiverStreamConfig.isValidUnicastSourceIp('10.0.0.10'), isTrue);
+      expect(MulticastReceiverStreamConfig.isValidUnicastSourceIp('239.0.0.1'), isFalse);
+      expect(MulticastReceiverStreamConfig.isValidUnicastSourceIp('0.0.0.0'), isFalse);
+
+      const rx = MulticastReceiverStreamConfig(
+        id: 'rx_ssm',
+        name: 'SSM Feed',
+        groupAddress: '232.1.1.1',
+        joinMode: IgmpJoinMode.ssm,
+        sourceFilterIp: ' 10.0.0.10 ',
+        expectedDscp: DscpPreset.ef,
+      );
+      expect(rx.isSsm, isTrue);
+      expect(rx.normalizedSourceIp, equals('10.0.0.10'));
+      expect(rx.expectedDscp, equals(DscpPreset.ef));
+
+      final cleared = rx.copyWith(
+        joinMode: IgmpJoinMode.asm,
+        clearSourceFilterIp: true,
+        clearExpectedDscp: true,
+      );
+      expect(cleared.isSsm, isFalse);
+      expect(cleared.sourceFilterIp, isNull);
+      expect(cleared.expectedDscp, isNull);
+    });
+  });
+
+  group('FastLeaveStatus & LeaveLatencyResult Tests', () {
+    test('classifyLatency maps 0-50ms, 51-500ms, and >500ms boundaries accurately', () {
+      expect(FastLeaveStatus.classifyLatency(0), equals(FastLeaveStatus.fastLeaveActive));
+      expect(FastLeaveStatus.classifyLatency(50), equals(FastLeaveStatus.fastLeaveActive));
+      expect(FastLeaveStatus.classifyLatency(51), equals(FastLeaveStatus.delayedPrune));
+      expect(FastLeaveStatus.classifyLatency(500), equals(FastLeaveStatus.delayedPrune));
+      expect(FastLeaveStatus.classifyLatency(501), equals(FastLeaveStatus.noFastLeave));
+      expect(FastLeaveStatus.fastLeaveActive.isComplete, isTrue);
+      expect(FastLeaveStatus.measuring.isComplete, isFalse);
+      expect(FastLeaveStatus.aborted.isComplete, isFalse);
+    });
+
+    test('LeaveLatencyResult copyWith and streamKey preserve metadata', () {
+      final t0 = DateTime(2026, 1, 1, 12, 0, 0);
+      final result = LeaveLatencyResult(
+        streamId: 'rx_1',
+        streamName: 'Audio 1',
+        groupIp: '239.255.0.1',
+        port: 5004,
+        leaveIssuedAt: t0,
+        leaveLatencyMs: 25,
+        trailingPacketsReceived: 2,
+        status: FastLeaveStatus.fastLeaveActive,
+      );
+      expect(result.endpoint, equals('239.255.0.1:5004'));
+      expect(result.streamKey, equals('rx_1'));
+
+      final updated = result.copyWith(leaveLatencyMs: 600, status: FastLeaveStatus.noFastLeave);
+      expect(updated.leaveLatencyMs, equals(600));
+      expect(updated.status, equals(FastLeaveStatus.noFastLeave));
+      expect(updated.trailingPacketsReceived, equals(2));
     });
   });
 }

@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:igmp_tester/domain/models/dscp_preset.dart';
 import 'package:igmp_tester/domain/models/multicast_config.dart';
 import 'package:igmp_tester/domain/models/multicast_packet.dart';
+import 'package:igmp_tester/domain/models/multicast_stats.dart';
 import 'package:igmp_tester/data/services/multicast/multicast_receiver_service.dart';
 
 void main() {
@@ -246,6 +248,306 @@ void main() {
       expect(stats.packetsLost, equals(3));
       expect(stats.maxGapPackets, equals(3));
       expect(stats.avgGapDurationMs, isNotNull);
+    });
+  });
+
+  group('Issue #4, #5, #7 Receiver Integration Tests', () {
+    Datagram buildDatagram({
+      required String groupIp,
+      required int port,
+      required String sourceIp,
+      required String sessionId,
+      required int seq,
+      int? dscpValue,
+    }) {
+      final packet = MulticastPacket(
+        sessionId: sessionId,
+        sequenceNumber: seq,
+        sendTimestampUs: DateTime.now().microsecondsSinceEpoch,
+        payloadSize: 64,
+        destinationGroup: groupIp,
+        destinationPort: port,
+        dscpValue: dscpValue,
+      );
+      return Datagram(packet.encode(), InternetAddress(sourceIp), 40000);
+    }
+
+    test('Fast-Leave reports 0ms Fast-Leave Active after silence window with zero trailing packets', () async {
+      DateTime fakeNow = DateTime(2026, 3, 1, 12, 0, 0);
+      final service = MulticastReceiverService(clock: () => fakeNow);
+      addTearDown(service.dispose);
+
+      service.addStreamForTesting(
+        const MulticastReceiverStreamConfig(
+          id: 'rx_fl_0',
+          name: 'FastLeave 0',
+          groupAddress: '239.255.1.1',
+          port: 5004,
+        ),
+      );
+
+      final result = await service.leaveStreamWithMeasurement(
+        'rx_fl_0',
+        maxDrainDuration: const Duration(milliseconds: 500),
+        silenceTimeout: const Duration(milliseconds: 25),
+      );
+
+      expect(result, isNotNull);
+      expect(result!.leaveLatencyMs, equals(0));
+      expect(result.trailingPacketsReceived, equals(0));
+      expect(result.status, equals(FastLeaveStatus.fastLeaveActive));
+      expect(result.aborted, isFalse);
+      expect(service.isMeasuringLeave, isFalse);
+      expect(service.lastLeaveLatency?.status, equals(FastLeaveStatus.fastLeaveActive));
+    });
+
+    test('Fast-Leave classifies 0-50ms, 51-500ms, and >500ms trailing packets and excludes them from flooding', () async {
+      final t0 = DateTime(2026, 3, 1, 12, 0, 0);
+      DateTime fakeNow = t0;
+      final service = MulticastReceiverService(clock: () => fakeNow);
+      addTearDown(service.dispose);
+
+      // 1) 25 ms -> Fast-Leave Active
+      service.addStreamForTesting(
+        const MulticastReceiverStreamConfig(
+          id: 'rx_fast',
+          name: 'Fast',
+          groupAddress: '239.255.1.2',
+          port: 5004,
+        ),
+      );
+      final fastFuture = service.leaveStreamWithMeasurement(
+        'rx_fast',
+        maxDrainDuration: const Duration(milliseconds: 500),
+        silenceTimeout: const Duration(milliseconds: 30),
+      );
+      expect(service.isStreamMeasuringLeave('rx_fast'), isTrue);
+      service.processDatagramForTesting(
+        buildDatagram(groupIp: '239.255.1.2', port: 5004, sourceIp: '10.0.0.1', sessionId: 'fl1', seq: 10),
+        5004,
+        timestamp: t0.add(const Duration(milliseconds: 15)),
+      );
+      service.processDatagramForTesting(
+        buildDatagram(groupIp: '239.255.1.2', port: 5004, sourceIp: '10.0.0.1', sessionId: 'fl1', seq: 11),
+        5004,
+        timestamp: t0.add(const Duration(milliseconds: 25)),
+      );
+      fakeNow = t0.add(const Duration(milliseconds: 55));
+      final fastResult = await fastFuture;
+      expect(fastResult!.leaveLatencyMs, equals(25));
+      expect(fastResult.trailingPacketsReceived, equals(2));
+      expect(fastResult.status, equals(FastLeaveStatus.fastLeaveActive));
+      expect(service.unsubscribedStreams, isEmpty);
+
+      // 2) 240 ms -> Delayed Prune
+      fakeNow = t0;
+      service.addStreamForTesting(
+        const MulticastReceiverStreamConfig(
+          id: 'rx_delay',
+          name: 'Delayed',
+          groupAddress: '239.255.1.3',
+          port: 5004,
+        ),
+      );
+      final delayFuture = service.leaveStreamWithMeasurement(
+        'rx_delay',
+        maxDrainDuration: const Duration(milliseconds: 500),
+        silenceTimeout: const Duration(milliseconds: 30),
+      );
+      service.processDatagramForTesting(
+        buildDatagram(groupIp: '239.255.1.3', port: 5004, sourceIp: '10.0.0.1', sessionId: 'fl2', seq: 1),
+        5004,
+        timestamp: t0.add(const Duration(milliseconds: 240)),
+      );
+      final delayResult = await delayFuture;
+      expect(delayResult!.leaveLatencyMs, equals(240));
+      expect(delayResult.status, equals(FastLeaveStatus.delayedPrune));
+
+      // 3) 800 ms -> No Fast-Leave (hit maxDrainTimer cap)
+      fakeNow = t0;
+      service.addStreamForTesting(
+        const MulticastReceiverStreamConfig(
+          id: 'rx_slow',
+          name: 'Slow',
+          groupAddress: '239.255.1.4',
+          port: 5004,
+        ),
+      );
+      final slowFuture = service.leaveStreamWithMeasurement(
+        'rx_slow',
+        maxDrainDuration: const Duration(milliseconds: 45),
+        silenceTimeout: const Duration(milliseconds: 40),
+      );
+      service.processDatagramForTesting(
+        buildDatagram(groupIp: '239.255.1.4', port: 5004, sourceIp: '10.0.0.1', sessionId: 'fl3', seq: 1),
+        5004,
+        timestamp: t0.add(const Duration(milliseconds: 800)),
+      );
+      final slowResult = await slowFuture;
+      expect(slowResult!.leaveLatencyMs, equals(800));
+      expect(slowResult.status, equals(FastLeaveStatus.noFastLeave));
+    });
+
+    test('Fast-Leave abortLeaveMeasurement ends drain immediately with aborted status', () async {
+      final service = MulticastReceiverService();
+      addTearDown(service.dispose);
+
+      service.addStreamForTesting(
+        const MulticastReceiverStreamConfig(
+          id: 'rx_abort',
+          name: 'Abort Test',
+          groupAddress: '239.255.1.5',
+          port: 5004,
+        ),
+      );
+
+      final drainFuture = service.leaveStreamWithMeasurement(
+        'rx_abort',
+        maxDrainDuration: const Duration(seconds: 3),
+        silenceTimeout: const Duration(milliseconds: 500),
+      );
+      expect(service.isMeasuringLeave, isTrue);
+      expect(service.lastLeaveLatency?.status, equals(FastLeaveStatus.measuring));
+
+      service.abortLeaveMeasurement('rx_abort');
+      final abortedResult = await drainFuture;
+
+      expect(abortedResult!.aborted, isTrue);
+      expect(abortedResult.status, equals(FastLeaveStatus.aborted));
+      expect(service.isMeasuringLeave, isFalse);
+    });
+
+    test('SSM (S, G) filters datagrams by sourceFilterIp cleanly without polluting unsubscribed list', () async {
+      final service = MulticastReceiverService();
+      addTearDown(service.dispose);
+
+      service.addStreamForTesting(
+        const MulticastReceiverStreamConfig(
+          id: 'rx_ssm_only',
+          name: 'SSM Stream',
+          groupAddress: '232.1.1.10',
+          port: 5004,
+          joinMode: IgmpJoinMode.ssm,
+          sourceFilterIp: '10.0.0.10',
+        ),
+      );
+
+      // Rejected unauthorized source
+      service.processDatagramForTesting(
+        buildDatagram(groupIp: '232.1.1.10', port: 5004, sourceIp: '10.0.0.99', sessionId: 'bad_src', seq: 1),
+        5004,
+      );
+      // Accepted authorized source
+      service.processDatagramForTesting(
+        buildDatagram(groupIp: '232.1.1.10', port: 5004, sourceIp: '10.0.0.10', sessionId: 'good_src', seq: 1),
+        5004,
+      );
+      service.recalculateStatsForTesting();
+
+      expect(service.currentStreamStats['rx_ssm_only']?.packetsReceived, equals(1));
+      expect(service.unsubscribedStreams, isEmpty);
+
+      // Also verify live loopback SSM start/stop handles OS fallback safely
+      final portProbe = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      final freePort = portProbe.port;
+      portProbe.close();
+
+      await service.startStream(
+        streamConfig: MulticastReceiverStreamConfig(
+          id: 'rx_ssm_live',
+          name: 'SSM Live',
+          groupAddress: '232.1.1.20',
+          port: freePort,
+          joinMode: IgmpJoinMode.ssm,
+          sourceFilterIp: '127.0.0.1',
+        ),
+        enableLoopback: true,
+      );
+      expect(service.isStreamRunning('rx_ssm_live'), isTrue);
+      await service.stopStream('rx_ssm_live');
+      expect(service.isStreamRunning('rx_ssm_live'), isFalse);
+    });
+
+    test('DSCP transit verification handles preserved, remarkedToZero, remarkedOrStripped, and unverified OS TOS', () {
+      final service = MulticastReceiverService();
+      addTearDown(service.dispose);
+
+      service.addStreamForTesting(
+        const MulticastReceiverStreamConfig(
+          id: 'rx_dscp',
+          name: 'QoS Stream',
+          groupAddress: '239.255.9.9',
+          port: 5004,
+          expectedDscp: DscpPreset.ef,
+        ),
+      );
+
+      // 1) No OS TOS metadata -> remains unverified while packet hint is recorded
+      service.processDatagramForTesting(
+        buildDatagram(
+          groupIp: '239.255.9.9',
+          port: 5004,
+          sourceIp: '10.0.0.1',
+          sessionId: 'dscp1',
+          seq: 1,
+          dscpValue: DscpPreset.ef.dscpValue,
+        ),
+        5004,
+      );
+      service.recalculateStatsForTesting();
+      expect(service.currentStreamStats['rx_dscp']?.dscpTransitStatus, equals(DscpTransitStatus.unverified));
+      expect(service.currentStreamStats['rx_dscp']?.senderDscpPreset, equals(DscpPreset.ef));
+
+      // 2) Preserved EF (TOS 0xB8 = 184)
+      service.processDatagramForTesting(
+        buildDatagram(
+          groupIp: '239.255.9.9',
+          port: 5004,
+          sourceIp: '10.0.0.1',
+          sessionId: 'dscp1',
+          seq: 2,
+          dscpValue: DscpPreset.ef.dscpValue,
+        ),
+        5004,
+        receivedTosByte: DscpPreset.ef.tosByte,
+      );
+      service.recalculateStatsForTesting();
+      expect(service.currentStreamStats['rx_dscp']?.dscpTransitStatus, equals(DscpTransitStatus.preserved));
+      expect(service.currentStreamStats['rx_dscp']?.receivedDscp, equals(46));
+
+      // 3) Stripped to Best Effort (0x00)
+      service.processDatagramForTesting(
+        buildDatagram(
+          groupIp: '239.255.9.9',
+          port: 5004,
+          sourceIp: '10.0.0.1',
+          sessionId: 'dscp1',
+          seq: 3,
+          dscpValue: DscpPreset.ef.dscpValue,
+        ),
+        5004,
+        receivedTosByte: 0x00,
+      );
+      service.recalculateStatsForTesting();
+      expect(service.currentStreamStats['rx_dscp']?.dscpTransitStatus, equals(DscpTransitStatus.remarkedToZero));
+      expect(service.currentStats.dscpTransitStatus, equals(DscpTransitStatus.remarkedToZero));
+
+      // 4) Remarked to CS3 (0x60 = 96)
+      service.processDatagramForTesting(
+        buildDatagram(
+          groupIp: '239.255.9.9',
+          port: 5004,
+          sourceIp: '10.0.0.1',
+          sessionId: 'dscp1',
+          seq: 4,
+          dscpValue: DscpPreset.ef.dscpValue,
+        ),
+        5004,
+        receivedTosByte: DscpPreset.cs3.tosByte,
+      );
+      service.recalculateStatsForTesting();
+      expect(service.currentStreamStats['rx_dscp']?.dscpTransitStatus, equals(DscpTransitStatus.remarkedOrStripped));
+      expect(service.currentStreamStats['rx_dscp']?.receivedDscp, equals(24));
     });
   });
 }

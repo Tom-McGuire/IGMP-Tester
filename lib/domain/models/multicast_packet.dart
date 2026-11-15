@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dscp_preset.dart';
 
 class MulticastPacket {
   static const String magicHeader = 'IGMPTEST';
   static const int minHeaderSize = 56;
+  static const int dscpPresentFlag = 0x80;
+  static const int dscpValueMask = 0x3F;
 
   final int version;
   final int flags;
@@ -18,7 +21,8 @@ class MulticastPacket {
 
   MulticastPacket({
     this.version = 1,
-    this.flags = 0,
+    int flags = 0,
+    int? dscpValue,
     required this.sessionId,
     required this.sequenceNumber,
     required this.sendTimestampUs,
@@ -27,7 +31,20 @@ class MulticastPacket {
     this.destinationGroup = '239.255.0.1',
     this.destinationPort = 5004,
     Uint8List? payload,
-  }) : payload = payload ?? Uint8List(0);
+  }) : flags = dscpValue != null
+            ? ((flags & 0x40) | dscpPresentFlag | (dscpValue & dscpValueMask))
+            : flags,
+       payload = payload ?? Uint8List(0);
+
+  /// 6-bit DSCP hint encoded in header `flags`, or `null` if not tagged.
+  int? get encodedDscp =>
+      (flags & dscpPresentFlag) != 0 ? (flags & dscpValueMask) : null;
+
+  /// Matching [DscpPreset] for [encodedDscp], or `null` if untagged or custom.
+  DscpPreset? get encodedDscpPreset {
+    final dscp = encodedDscp;
+    return dscp == null ? null : DscpPreset.tryFromDscpValue(dscp);
+  }
 
   DateTime get sendDateTime =>
       DateTime.fromMicrosecondsSinceEpoch(sendTimestampUs);

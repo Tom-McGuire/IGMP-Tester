@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../../../data/services/igmp/igmp_querier_watchdog.dart';
+import '../../../../domain/models/igmp_query_event.dart';
 import '../../../../domain/models/network_interface_info.dart';
 import '../view_models/igmp_tester_view_model.dart';
 import 'dialogs/device_library_dialog.dart';
@@ -154,6 +156,8 @@ class TopControlBar extends StatelessWidget {
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                         ),
                       ),
+                      const SizedBox(width: 10),
+                      _QuerierVersionPill(status: vm.querierStatus),
                     ],
                   ),
 
@@ -197,11 +201,15 @@ class TopControlBar extends StatelessWidget {
 
                       // ==================== ZONE 5: CLEAR & EXPORT ====================
                       OutlinedButton.icon(
-                        onPressed: (isAnyRunning || (vm.gaps.isEmpty && vm.igmpEvents.isEmpty))
+                        onPressed: (isAnyRunning ||
+                                (vm.gaps.isEmpty &&
+                                    vm.igmpEvents.isEmpty &&
+                                    vm.lastLeaveLatency == null))
                             ? null
                             : () {
                                 vm.clearGaps();
                                 vm.clearIgmpLogs();
+                                vm.clearLeaveLatencyResults();
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text('Cleared gap logs and IGMP events'),
@@ -223,7 +231,8 @@ class TopControlBar extends StatelessWidget {
                         tooltip: 'Export',
                         enabled: vm.gaps.isNotEmpty ||
                             vm.igmpEvents.isNotEmpty ||
-                            vm.senderConfig.streams.isNotEmpty,
+                            vm.senderConfig.streams.isNotEmpty ||
+                            vm.lastLeaveLatency != null,
                         onSelected: (val) async {
                           if (val == 'csv') {
                             try {
@@ -306,6 +315,89 @@ class TopControlBar extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _QuerierVersionPill extends StatelessWidget {
+  final QuerierStatus status;
+
+  const _QuerierVersionPill({required this.status});
+
+  Color _versionColor(IgmpProtocolVersion version) {
+    switch (version) {
+      case IgmpProtocolVersion.igmpv3:
+        return const Color(0xFF10B981);
+      case IgmpProtocolVersion.igmpv2:
+        return const Color(0xFFF59E0B);
+      case IgmpProtocolVersion.igmpv1:
+        return const Color(0xFFF97316);
+      case IgmpProtocolVersion.unknown:
+        return Colors.grey;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final healthColor = Color(status.health.colorHex);
+    final versionColor = _versionColor(status.querierVersion);
+    final hostLabel = status.querierIp != null
+        ? 'Querier: ${status.querierIp}'
+        : 'Querier: Idle';
+
+    return Tooltip(
+      message: '${status.statusMessage} (${status.displayBadge})',
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF252526),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: versionColor.withValues(alpha: 0.45)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: healthColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 96),
+              child: Text(
+                hostLabel,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Colors.white70,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: versionColor.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                status.displayBadge,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: versionColor,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

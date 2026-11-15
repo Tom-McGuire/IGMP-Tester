@@ -1,6 +1,10 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:igmp_tester/data/services/multicast/multicast_sender_service.dart';
+import 'package:igmp_tester/domain/models/dscp_preset.dart';
 import 'package:igmp_tester/domain/models/multicast_config.dart';
+import 'package:igmp_tester/domain/models/multicast_packet.dart';
 
 void main() {
   group('MulticastSenderService Tests', () {
@@ -99,6 +103,53 @@ void main() {
       expect(senderService.isRunning, isFalse);
       expect(senderService.isStreamRunning('stream_a'), isFalse);
       expect(senderService.isStreamRunning('stream_b'), isFalse);
+    });
+
+    test('startStream records configured DSCP preset in SenderStats and encodes DSCP hint in packets', () async {
+      final rxSocket = await RawDatagramSocket.bind(
+        InternetAddress.anyIPv4,
+        0,
+        reuseAddress: true,
+      );
+      final completer = Completer<MulticastPacket>();
+      try {
+        rxSocket.multicastLoopback = true;
+        rxSocket.joinMulticast(InternetAddress('239.255.44.55'));
+        rxSocket.listen((event) {
+          if (event == RawSocketEvent.read && !completer.isCompleted) {
+            final d = rxSocket.receive();
+            if (d != null) {
+              final decoded = MulticastPacket.decode(d.data);
+              if (decoded != null) completer.complete(decoded);
+            }
+          }
+        });
+
+        final stream = MulticastStreamConfig(
+          id: 'tx_dscp_ef',
+          name: 'Dante EF Stream',
+          groupAddress: '239.255.44.55',
+          port: rxSocket.port,
+          packetsPerSecond: 50,
+          packetSizeBytes: 128,
+          ttl: 1,
+          dscpPreset: DscpPreset.ef,
+        );
+
+        await senderService.startStream(
+          streamConfig: stream,
+          enableLoopback: true,
+        );
+
+        expect(senderService.currentStats.dscpPreset, equals(DscpPreset.ef));
+        expect(senderService.currentStreamStats['tx_dscp_ef']?.dscpPreset, equals(DscpPreset.ef));
+
+        final received = await completer.future.timeout(const Duration(seconds: 2));
+        expect(received.encodedDscp, equals(DscpPreset.ef.dscpValue));
+        expect(received.encodedDscpPreset, equals(DscpPreset.ef));
+      } finally {
+        rxSocket.close();
+      }
     });
   });
 }

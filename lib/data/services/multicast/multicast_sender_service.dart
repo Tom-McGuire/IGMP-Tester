@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import '../../../domain/models/dscp_preset.dart';
 import '../../../domain/models/multicast_config.dart';
 import '../../../domain/models/multicast_packet.dart';
 import '../../../domain/models/multicast_stats.dart';
+import 'dscp_socket_helper.dart';
 
 class _ActiveSenderContext {
   final MulticastStreamConfig config;
@@ -73,6 +75,11 @@ class MulticastSenderService {
       } catch (_) {}
     }
 
+    final dscpResult = DscpSocketHelper.applySenderPresetWithResult(
+      socket,
+      streamConfig.dscpPreset,
+    );
+
     final now = DateTime.now();
     // Unique session ID per stream run (16 chars)
     final hexTime = now.millisecondsSinceEpoch.toRadixString(16);
@@ -82,10 +89,11 @@ class MulticastSenderService {
     final pps = streamConfig.packetsPerSecond.clamp(1, 5000);
     final intervalUs = (1000000 / pps).round();
 
-    // Pre-allocate template packet buffer with destination group and port
+    // Pre-allocate template packet buffer with destination group, port, and DSCP hint
     final templatePacket = MulticastPacket(
       version: 1,
       flags: 0,
+      dscpValue: streamConfig.dscpPreset.dscpValue,
       sessionId: sessionId,
       sequenceNumber: 0,
       sendTimestampUs: 0,
@@ -110,6 +118,9 @@ class MulticastSenderService {
         port: streamConfig.port,
         activeSessionId: sessionId,
         duration: Duration.zero,
+        dscpPreset: streamConfig.dscpPreset,
+        dscpSocketApplied: dscpResult.success,
+        dscpWarning: dscpResult.warningMessage,
       ),
     );
 
@@ -240,6 +251,19 @@ class MulticastSenderService {
       totalMbps += mbps;
     }
 
+    final presets = updatedStreamStats.values.map((s) => s.dscpPreset).toSet();
+    final aggDscpPreset = presets.length == 1
+        ? presets.first
+        : DscpPreset.bestEffort;
+    final aggDscpApplied =
+        updatedStreamStats.isNotEmpty &&
+        updatedStreamStats.values.every((s) => s.dscpSocketApplied);
+    final firstDscpWarning = updatedStreamStats.values
+        .map((s) => s.dscpWarning)
+        .whereType<String>()
+        .cast<String?>()
+        .firstWhere((w) => w != null, orElse: () => null);
+
     _streamStats = updatedStreamStats;
     _streamStatsController.add(_streamStats);
 
@@ -249,6 +273,9 @@ class MulticastSenderService {
       currentPps: totalPps,
       currentBitrateMbps: totalMbps,
       activeStreamsCount: _activeStreams.length,
+      dscpPreset: aggDscpPreset,
+      dscpSocketApplied: aggDscpApplied,
+      dscpWarning: firstDscpWarning,
     );
     _statsController.add(_aggregateStats);
   }

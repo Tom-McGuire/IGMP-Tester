@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 import 'ui/features/dashboard/view_models/igmp_tester_view_model.dart';
 import 'ui/features/dashboard/views/igmp_tester_home_screen.dart';

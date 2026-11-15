@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:igmp_tester/domain/models/dscp_preset.dart';
 import 'package:igmp_tester/domain/models/multicast_packet.dart';
 
 void main() {
@@ -91,6 +92,38 @@ void main() {
       final data = Uint8List(55);
       final decoded = MulticastPacket.decode(data);
       expect(decoded, isNull);
+    });
+
+    test('encodes and decodes DSCP hint in flags without altering legacy flags=0', () {
+      final legacy = MulticastPacket(
+        sessionId: 'legacy01',
+        sequenceNumber: 1,
+        sendTimestampUs: 1000,
+        payloadSize: 64,
+        destinationGroup: '239.255.0.1',
+        destinationPort: 5004,
+      );
+      final legacyDecoded = MulticastPacket.decode(legacy.encode())!;
+      expect(legacyDecoded.flags, equals(0));
+      expect(legacyDecoded.encodedDscp, isNull);
+      expect(legacyDecoded.encodedDscpPreset, isNull);
+
+      final qosPacket = MulticastPacket(
+        sessionId: 'qos01',
+        sequenceNumber: 7,
+        sendTimestampUs: 2000,
+        payloadSize: 128,
+        destinationGroup: '239.255.0.2',
+        destinationPort: 5004,
+        dscpValue: DscpPreset.ef.dscpValue,
+      );
+      final bytes = qosPacket.encode();
+      MulticastPacket.updateSequenceAndTimestamp(bytes, 8, 3000);
+      final qosDecoded = MulticastPacket.decode(bytes)!;
+
+      expect(qosDecoded.sequenceNumber, equals(8));
+      expect(qosDecoded.encodedDscp, equals(46));
+      expect(qosDecoded.encodedDscpPreset, equals(DscpPreset.ef));
     });
   });
 }

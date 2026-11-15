@@ -1,4 +1,20 @@
+import 'dscp_preset.dart';
 import 'network_interface_info.dart';
+
+/// IGMP membership mode for a multicast receiver stream.
+enum IgmpJoinMode {
+  /// Standard Any-Source Multicast `(*, G)` subscription.
+  asm('ASM (*, G)'),
+
+  /// Source-Specific Multicast `(S, G)` subscription (`IGMPv3 INCLUDE {S}`).
+  ssm('SSM (S, G)');
+
+  final String label;
+  const IgmpJoinMode(this.label);
+
+  bool get isSsm => this == IgmpJoinMode.ssm;
+  bool get isAsm => this == IgmpJoinMode.asm;
+}
 
 enum MulticastPreset {
   orgLocal('239.255.0.1', 5004, 'Admin / Org-Local (239.255.0.1)'),
@@ -145,6 +161,7 @@ class MulticastStreamConfig {
   final int packetSizeBytes;
   final int ttl;
   final bool enabled;
+  final DscpPreset dscpPreset;
 
   const MulticastStreamConfig({
     required this.id,
@@ -155,6 +172,7 @@ class MulticastStreamConfig {
     this.packetSizeBytes = 256,
     this.ttl = 64,
     this.enabled = true,
+    this.dscpPreset = DscpPreset.bestEffort,
   });
 
   String get endpoint => '$groupAddress:$port';
@@ -168,6 +186,7 @@ class MulticastStreamConfig {
     int? packetSizeBytes,
     int? ttl,
     bool? enabled,
+    DscpPreset? dscpPreset,
   }) {
     return MulticastStreamConfig(
       id: id ?? this.id,
@@ -178,6 +197,7 @@ class MulticastStreamConfig {
       packetSizeBytes: (packetSizeBytes ?? this.packetSizeBytes).clamp(56, 1472),
       ttl: (ttl ?? this.ttl).clamp(1, 255),
       enabled: enabled ?? this.enabled,
+      dscpPreset: dscpPreset ?? this.dscpPreset,
     );
   }
 
@@ -214,6 +234,9 @@ class MulticastReceiverStreamConfig {
   final int port;
   final bool enabled;
   final bool joinGroup;
+  final IgmpJoinMode joinMode;
+  final String? sourceFilterIp;
+  final DscpPreset? expectedDscp;
 
   const MulticastReceiverStreamConfig({
     required this.id,
@@ -222,9 +245,44 @@ class MulticastReceiverStreamConfig {
     this.port = 5004,
     this.enabled = true,
     this.joinGroup = true,
+    this.joinMode = IgmpJoinMode.asm,
+    this.sourceFilterIp,
+    this.expectedDscp,
   });
 
   String get endpoint => '$groupAddress:$port';
+  bool get isSsm => joinMode == IgmpJoinMode.ssm;
+  String get normalizedSourceIp => sourceFilterIp?.trim() ?? '';
+  bool get hasSourceFilter => normalizedSourceIp.isNotEmpty;
+
+  /// Validates a strict dotted-quad IPv4 address string.
+  static bool isValidIpv4(String value) {
+    final parts = value.trim().split('.');
+    if (parts.length != 4) return false;
+    for (final part in parts) {
+      final octet = int.tryParse(part);
+      if (octet == null || octet < 0 || octet > 255) return false;
+    }
+    return true;
+  }
+
+  /// Validates that [value] is a dotted-quad unicast IPv4 source address
+  /// suitable for SSM `(S, G)` filtering (not unspecified, broadcast, or multicast).
+  static bool isValidUnicastSourceIp(String value) {
+    final trimmed = value.trim();
+    if (!isValidIpv4(trimmed)) return false;
+    final octets = trimmed.split('.').map(int.parse).toList();
+    if (octets[0] == 0) return false;
+    if (octets[0] >= 224) return false; // excludes 224.0.0.0/4 multicast & 240+ reserved/broadcast
+    return true;
+  }
+
+  /// Returns true when [value] falls inside the IANA SSM range `232.0.0.0/8`.
+  static bool isSsmGroupIpv4(String value) {
+    if (!isValidIpv4(value)) return false;
+    final firstOctet = int.tryParse(value.trim().split('.').first);
+    return firstOctet == 232;
+  }
 
   MulticastReceiverStreamConfig copyWith({
     String? id,
@@ -233,6 +291,11 @@ class MulticastReceiverStreamConfig {
     int? port,
     bool? enabled,
     bool? joinGroup,
+    IgmpJoinMode? joinMode,
+    String? sourceFilterIp,
+    bool clearSourceFilterIp = false,
+    DscpPreset? expectedDscp,
+    bool clearExpectedDscp = false,
   }) {
     return MulticastReceiverStreamConfig(
       id: id ?? this.id,
@@ -241,6 +304,9 @@ class MulticastReceiverStreamConfig {
       port: (port ?? this.port).clamp(1, 65535),
       enabled: enabled ?? this.enabled,
       joinGroup: joinGroup ?? this.joinGroup,
+      joinMode: joinMode ?? this.joinMode,
+      sourceFilterIp: clearSourceFilterIp ? null : (sourceFilterIp ?? this.sourceFilterIp),
+      expectedDscp: clearExpectedDscp ? null : (expectedDscp ?? this.expectedDscp),
     );
   }
 }
