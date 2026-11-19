@@ -240,5 +240,79 @@ void main() {
       expect(vm.senderConfig.streams.last.dscpPreset, equals(DscpPreset.ef));
       expect(find.text('EF (46)'), findsOneWidget);
     });
+
+    testWidgets('TopControlBar renders in Dark and Light themes and toggles Load Demo / Exit Demo cleanly', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+      addTearDown(() => AppTheme.isDark = true);
+
+      final vm = IgmpTesterViewModel(
+        interfaceService: _FakeIfaceService(),
+        snifferService: _FakeSnifferService(),
+      );
+      addTearDown(vm.dispose);
+
+      // Dark theme check
+      AppTheme.isDark = true;
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: vm,
+          child: MaterialApp(
+            theme: AppTheme.darkTheme(),
+            home: const Scaffold(body: TopControlBar()),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('IGMP & Multicast Tester'), findsOneWidget);
+      expect(find.text('Load Demo'), findsOneWidget);
+      expect(find.text('Exit Demo'), findsNothing);
+
+      await tester.tap(find.text('Load Demo'));
+      await tester.pump();
+
+      expect(vm.isDemoMode, isTrue);
+      expect(find.text('Exit Demo'), findsOneWidget);
+      expect(find.text('Load Demo'), findsNothing);
+      expect(find.text('Querier: 192.168.10.1'), findsOneWidget);
+      expect(find.text('IGMPv3'), findsOneWidget);
+
+      await tester.tap(find.text('Exit Demo'));
+      await tester.pump();
+
+      expect(vm.isDemoMode, isFalse);
+      expect(find.text('Load Demo'), findsOneWidget);
+      expect(find.text('Querier: Idle'), findsOneWidget);
+      expect(find.text('Unknown'), findsOneWidget);
+
+      // Light theme check
+      AppTheme.isDark = false;
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: vm,
+          child: MaterialApp(
+            theme: AppTheme.lightTheme(),
+            home: const Scaffold(body: TopControlBar()),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(find.text('IGMP & Multicast Tester'), findsOneWidget);
+      expect(find.text('Load Demo'), findsOneWidget);
+
+      await tester.tap(find.text('Load Demo'));
+      await tester.pump();
+      expect(vm.isDemoMode, isTrue);
+      expect(find.text('Exit Demo'), findsOneWidget);
+
+      await tester.tap(find.text('Exit Demo'));
+      await tester.pump();
+      expect(vm.isDemoMode, isFalse);
+      expect(find.text('Load Demo'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

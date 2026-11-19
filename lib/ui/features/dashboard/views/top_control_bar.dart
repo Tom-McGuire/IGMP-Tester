@@ -6,32 +6,48 @@ import 'package:provider/provider.dart';
 import '../../../../data/services/igmp/igmp_querier_watchdog.dart';
 import '../../../../domain/models/igmp_query_event.dart';
 import '../../../../domain/models/network_interface_info.dart';
+import '../../../theme/app_theme.dart';
 import '../view_models/igmp_tester_view_model.dart';
 import 'dialogs/device_library_dialog.dart';
 
 class TopControlBar extends StatelessWidget {
-  const TopControlBar({super.key});
+  final GlobalKey? interfaceSelectorKey;
+  final GlobalKey? masterStartStopKey;
+
+  const TopControlBar({
+    super.key,
+    this.interfaceSelectorKey,
+    this.masterStartStopKey,
+  });
 
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<IgmpTesterViewModel>();
     final isAnyRunning = vm.isAnyRunning;
+    final canClear = !isAnyRunning &&
+        (vm.gaps.isNotEmpty ||
+            vm.igmpEvents.isNotEmpty ||
+            vm.lastLeaveLatency != null);
+    final canExport = vm.gaps.isNotEmpty ||
+        vm.igmpEvents.isNotEmpty ||
+        vm.senderConfig.streams.isNotEmpty ||
+        vm.lastLeaveLatency != null;
 
     return Container(
       height: 52,
-      decoration: const BoxDecoration(
-        color: Color(0xFF1E1E1E),
-        border: Border(bottom: BorderSide(color: Color(0xFF2C2C2C), width: 1)),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        border: Border(bottom: BorderSide(color: AppTheme.border, width: 1)),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final effectiveMinWidth = constraints.maxWidth.isFinite
-              ? (constraints.maxWidth - 32).clamp(0.0, double.infinity)
+              ? (constraints.maxWidth - 24).clamp(0.0, double.infinity)
               : 0.0;
 
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             child: ConstrainedBox(
               constraints: BoxConstraints(minWidth: effectiveMinWidth),
               child: Row(
@@ -46,65 +62,67 @@ class TopControlBar extends StatelessWidget {
                         borderRadius: BorderRadius.circular(6),
                         child: Image.asset(
                           'assets/images/app_icon.png',
-                          width: 32,
-                          height: 32,
+                          width: 28,
+                          height: 28,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) => Container(
-                            width: 32,
-                            height: 32,
-                            padding: const EdgeInsets.all(6),
+                            width: 28,
+                            height: 28,
+                            padding: const EdgeInsets.all(5),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF007ACC).withValues(alpha: 0.15),
+                              color: AppTheme.accent.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: const Icon(Icons.hub_outlined, color: Color(0xFF007ACC), size: 18),
+                            child: Icon(Icons.hub_outlined, color: AppTheme.accent, size: 17),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      const Column(
+                      const SizedBox(width: 8),
+                      Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             'IGMP & Multicast Tester',
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: 12.5,
                               fontWeight: FontWeight.bold,
-                              letterSpacing: 0.8,
-                              color: Colors.white,
+                              letterSpacing: 0.4,
+                              color: AppTheme.textPrimary,
                             ),
                           ),
                           Text(
                             'Multi-Stream & Saturation Engine',
-                            style: TextStyle(fontSize: 10, color: Colors.white54),
+                            style: TextStyle(fontSize: 9.5, color: AppTheme.textSecondary),
                           ),
                         ],
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 10),
 
                       // ==================== ZONE 2: INTERFACE & TARGET ====================
                       Container(
-                        width: 200,
+                        key: interfaceSelectorKey,
+                        width: 175,
                         height: 32,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF252526),
+                          color: AppTheme.surfaceHigh,
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: const Color(0xFF3E3E42)),
+                          border: Border.all(color: AppTheme.borderStrong),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.settings_ethernet, size: 15, color: Colors.grey),
-                            const SizedBox(width: 6),
+                            Icon(Icons.settings_ethernet, size: 14, color: AppTheme.textSecondary),
+                            const SizedBox(width: 5),
                             Expanded(
                               child: DropdownButtonHideUnderline(
                                 child: DropdownButton<NetworkInterfaceInfo>(
                                   value: vm.selectedInterface,
                                   isDense: true,
                                   isExpanded: true,
-                                  dropdownColor: const Color(0xFF252526),
-                                  style: const TextStyle(fontSize: 12, color: Colors.white),
+                                  dropdownColor: AppTheme.surfaceElevated,
+                                  iconEnabledColor: AppTheme.textSecondary,
+                                  style: TextStyle(fontSize: 11.5, color: AppTheme.textPrimary),
                                   items: vm.interfaces.map((iface) {
                                     return DropdownMenuItem<NetworkInterfaceInfo>(
                                       value: iface,
@@ -123,18 +141,20 @@ class TopControlBar extends StatelessWidget {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 2),
                       IconButton(
-                        icon: const Icon(Icons.refresh, size: 16, color: Colors.grey),
+                        icon: Icon(Icons.refresh, size: 16, color: AppTheme.textSecondary),
                         tooltip: 'Refresh Interfaces',
                         padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                        visualDensity: VisualDensity.compact,
                         onPressed: () => vm.refreshInterfaces(),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 8),
 
                       // ==================== ZONE 3: PRIMARY ACTIONS ====================
                       FilledButton.icon(
+                        key: masterStartStopKey,
                         onPressed: () {
                           if (isAnyRunning) {
                             vm.stopAll();
@@ -144,24 +164,26 @@ class TopControlBar extends StatelessWidget {
                         },
                         style: FilledButton.styleFrom(
                           backgroundColor: isAnyRunning
-                              ? const Color(0xFFEF4444) // Active Red
-                              : const Color(0xFF10B981), // Idle Emerald Green (from ARP Scout)
+                              ? AppTheme.error // Active Red
+                              : AppTheme.success, // Idle Emerald Green
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: const Size(0, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                         ),
-                        icon: Icon(isAnyRunning ? Icons.stop : Icons.play_arrow, size: 17),
+                        icon: Icon(isAnyRunning ? Icons.stop : Icons.play_arrow, size: 16),
                         label: Text(
                           isAnyRunning ? 'Stop All' : 'Start All',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       _QuerierVersionPill(status: vm.querierStatus),
                     ],
                   ),
 
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 8),
 
                   // ==================== RIGHT CLUSTER (ZONES 4, 5) ====================
                   Row(
@@ -170,41 +192,50 @@ class TopControlBar extends StatelessWidget {
                       // ==================== ZONE 4: ECOSYSTEM & DEMO ====================
                       OutlinedButton.icon(
                         onPressed: () => DeviceLibraryDialog.show(context),
-                        icon: const Icon(Icons.devices, size: 15),
+                        icon: const Icon(Icons.devices, size: 14),
                         label: const Text('Device Library', style: TextStyle(fontSize: 11)),
                         style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          foregroundColor: AppTheme.textPrimary,
+                          side: BorderSide(color: AppTheme.borderStrong),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          minimumSize: const Size(0, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       OutlinedButton.icon(
-                        onPressed: isAnyRunning
-                            ? null
-                            : () {
-                                vm.loadDemo();
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Loaded 10 demo multicast test streams (Tx & Rx)'),
-                                    duration: Duration(seconds: 2),
-                                  ),
-                                );
-                              },
-                        icon: const Icon(Icons.play_circle_outline, size: 15),
-                        label: const Text('Load Demo', style: TextStyle(fontSize: 11)),
+                        onPressed: vm.isDemoMode
+                            ? () => vm.endDemoWalkthrough()
+                            : (isAnyRunning ? null : () => vm.startDemoWalkthrough()),
+                        icon: Icon(
+                          vm.isDemoMode
+                              ? Icons.stop_circle_outlined
+                              : Icons.play_circle_outline,
+                          size: 15,
+                          color: vm.isDemoMode ? AppTheme.warning : null,
+                        ),
+                        label: Text(
+                          vm.isDemoMode ? 'Exit Demo' : 'Load Demo',
+                          style: const TextStyle(fontSize: 11),
+                        ),
                         style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          foregroundColor:
+                              vm.isDemoMode ? AppTheme.warning : AppTheme.textPrimary,
+                          side: BorderSide(
+                            color: vm.isDemoMode ? AppTheme.warning : AppTheme.borderStrong,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          minimumSize: const Size(0, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
 
                       // ==================== ZONE 5: CLEAR & EXPORT ====================
                       OutlinedButton.icon(
-                        onPressed: (isAnyRunning ||
-                                (vm.gaps.isEmpty &&
-                                    vm.igmpEvents.isEmpty &&
-                                    vm.lastLeaveLatency == null))
+                        onPressed: !canClear
                             ? null
                             : () {
                                 vm.clearGaps();
@@ -217,22 +248,25 @@ class TopControlBar extends StatelessWidget {
                                   ),
                                 );
                               },
-                        icon: const Icon(Icons.delete_sweep_outlined, size: 15),
+                        icon: const Icon(Icons.delete_sweep_outlined, size: 14),
                         label: const Text('Clear', style: TextStyle(fontSize: 11)),
                         style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          foregroundColor: AppTheme.textPrimary,
+                          side: BorderSide(
+                            color: canClear ? AppTheme.borderStrong : AppTheme.border,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          minimumSize: const Size(0, 32),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
 
                       // Export Menu (Styled as bordered chip per specification)
                       PopupMenuButton<String>(
                         tooltip: 'Export',
-                        enabled: vm.gaps.isNotEmpty ||
-                            vm.igmpEvents.isNotEmpty ||
-                            vm.senderConfig.streams.isNotEmpty ||
-                            vm.lastLeaveLatency != null,
+                        enabled: canExport,
                         onSelected: (val) async {
                           if (val == 'csv') {
                             try {
@@ -246,16 +280,19 @@ class TopControlBar extends StatelessWidget {
                               );
                               if (uri != null && context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Gap report saved successfully.'),
-                                    backgroundColor: Color(0xFF2E7D32),
+                                  SnackBar(
+                                    content: const Text('Gap report saved successfully.'),
+                                    backgroundColor: AppTheme.success,
                                   ),
                                 );
                               }
                             } catch (e) {
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Export failed: $e'), backgroundColor: Colors.red),
+                                  SnackBar(
+                                    content: Text('Export failed: $e'),
+                                    backgroundColor: AppTheme.error,
+                                  ),
                                 );
                               }
                             }
@@ -292,18 +329,35 @@ class TopControlBar extends StatelessWidget {
                           ),
                         ],
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          height: 32,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFF2C2C2C)),
+                            border: Border.all(
+                              color: canExport ? AppTheme.borderStrong : AppTheme.border,
+                            ),
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.download, size: 15, color: Colors.white70),
-                              SizedBox(width: 6),
-                              Text('Export', style: TextStyle(fontSize: 11, color: Colors.white70)),
-                              Icon(Icons.arrow_drop_down, size: 14, color: Colors.white70),
+                              Icon(
+                                Icons.download,
+                                size: 14,
+                                color: canExport ? AppTheme.textPrimary : AppTheme.textMuted,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Export',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: canExport ? AppTheme.textPrimary : AppTheme.textMuted,
+                                ),
+                              ),
+                              Icon(
+                                Icons.arrow_drop_down,
+                                size: 14,
+                                color: canExport ? AppTheme.textPrimary : AppTheme.textMuted,
+                              ),
                             ],
                           ),
                         ),
@@ -328,19 +382,21 @@ class _QuerierVersionPill extends StatelessWidget {
   Color _versionColor(IgmpProtocolVersion version) {
     switch (version) {
       case IgmpProtocolVersion.igmpv3:
-        return const Color(0xFF10B981);
+        return AppTheme.success;
       case IgmpProtocolVersion.igmpv2:
-        return const Color(0xFFF59E0B);
+        return AppTheme.warning;
       case IgmpProtocolVersion.igmpv1:
-        return const Color(0xFFF97316);
+        return AppTheme.isDark ? const Color(0xFFF97316) : const Color(0xFFEA580C);
       case IgmpProtocolVersion.unknown:
-        return Colors.grey;
+        return AppTheme.textMuted;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final healthColor = Color(status.health.colorHex);
+    final healthColor = status.health == QuerierHealth.idle
+        ? AppTheme.textMuted
+        : Color(status.health.colorHex);
     final versionColor = _versionColor(status.querierVersion);
     final hostLabel = status.querierIp != null
         ? 'Querier: ${status.querierIp}'
@@ -352,7 +408,7 @@ class _QuerierVersionPill extends StatelessWidget {
         height: 32,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF252526),
+          color: AppTheme.surfaceHigh,
           borderRadius: BorderRadius.circular(6),
           border: Border.all(color: versionColor.withValues(alpha: 0.45)),
         ),
@@ -373,9 +429,9 @@ class _QuerierVersionPill extends StatelessWidget {
               child: Text(
                 hostLabel,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 10,
-                  color: Colors.white70,
+                  color: AppTheme.textPrimary,
                   fontFamily: 'monospace',
                 ),
               ),

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:material_ui/material_ui.dart';
 import '../../../../data/services/multicast/flooding_scanner_service.dart';
 import '../../../../domain/models/flooded_stream_entry.dart';
+import '../../../theme/app_theme.dart';
 
 /// Modal sheet / dialog panel displaying passive unjoined multicast flooding
 /// scan controls, snooping health verdict banners, and discovered streams with
@@ -199,9 +200,9 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
+        color: AppTheme.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF2C2C2C)),
+        border: Border.all(color: AppTheme.border),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -213,7 +214,7 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _buildHeader(canClose: canClose),
-              const Divider(height: 1, color: Color(0xFF2C2C2C)),
+              Divider(height: 1, color: AppTheme.border),
               _buildStatusBar(
                 ports: ports,
                 isScanning: isScanning,
@@ -259,39 +260,39 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
   Widget _buildHeader({required bool canClose}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: const BoxDecoration(
-        color: Color(0xFF252526),
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceHigh,
+        borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(8),
           topRight: Radius.circular(8),
         ),
       ),
       child: Row(
         children: [
-          const Icon(Icons.radar, size: 20, color: Color(0xFFFF9800)),
+          Icon(Icons.radar, size: 20, color: AppTheme.warning),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Unjoined Multicast Flooding Scanner',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: AppTheme.textPrimary,
                   ),
                 ),
                 Text(
                   'Passive UDP listener without IGMP Membership Reports (zero IGMP Joins sent)',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                  style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                 ),
               ],
             ),
           ),
           if (canClose)
             IconButton(
-              icon: const Icon(Icons.close, size: 18, color: Colors.grey),
+              icon: Icon(Icons.close, size: 18, color: AppTheme.textSecondary),
               tooltip: 'Close',
               onPressed: _handleClose,
             ),
@@ -306,6 +307,7 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
     required bool hasCompleted,
     required int entriesCount,
   }) {
+    final bool isDark = AppTheme.isDark;
     final elapsedSec =
         (_scanner.scanElapsed.inMilliseconds / 1000.0).toStringAsFixed(1);
     final totalSec =
@@ -320,7 +322,7 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      color: const Color(0xFF1A1A1A),
+      color: AppTheme.surfaceAlt,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -339,25 +341,25 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF252526),
+                      color: isDark ? AppTheme.surfaceHigh : AppTheme.surface,
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: const Color(0xFF3E3E42)),
+                      border: Border.all(color: AppTheme.borderStrong),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.settings_ethernet,
                           size: 13,
-                          color: Color(0xFF64B5F6),
+                          color: isDark ? const Color(0xFF64B5F6) : AppTheme.info,
                         ),
                         const SizedBox(width: 6),
                         Text(
                           'Ports: $portsText',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11.5,
                             fontFamily: 'monospace',
-                            color: Colors.white70,
+                            color: AppTheme.textPrimary,
                           ),
                         ),
                       ],
@@ -369,10 +371,10 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                       fontSize: 11.5,
                       fontWeight: FontWeight.w600,
                       color: isScanning
-                          ? const Color(0xFFFFB74D)
+                          ? (isDark ? const Color(0xFFFFB74D) : const Color(0xFFB45309))
                           : (hasCompleted
-                              ? const Color(0xFF81C784)
-                              : Colors.grey.shade400),
+                              ? (isDark ? const Color(0xFF81C784) : const Color(0xFF047857))
+                              : AppTheme.textSecondary),
                     ),
                   ),
                   if (_scanner.ignoredControlPacketCount > 0 ||
@@ -381,7 +383,7 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                       'Filtered: ${_scanner.ignoredControlPacketCount} control, ${_scanner.ignoredJoinedPacketCount} joined',
                       style: TextStyle(
                         fontSize: 11,
-                        color: Colors.grey.shade500,
+                        color: AppTheme.textSecondary,
                       ),
                     ),
                 ],
@@ -392,10 +394,10 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isScanning
-                          ? const Color(0xFF8B0000)
+                          ? (isDark ? const Color(0xFF8B0000) : AppTheme.error)
                           : (hasCompleted
-                              ? const Color(0xFFE65100)
-                              : const Color(0xFF2196F3)),
+                              ? const Color(0xFFC2410C)
+                              : AppTheme.info),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -430,8 +432,8 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                     const SizedBox(width: 8),
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Color(0xFF3E3E42)),
+                        foregroundColor: AppTheme.textPrimary,
+                        side: BorderSide(color: AppTheme.borderStrong),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
                           vertical: 8,
@@ -454,13 +456,13 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
               child: LinearProgressIndicator(
                 value: _scanner.scanProgress,
                 minHeight: 4,
-                backgroundColor: const Color(0xFF2C2C2C),
+                backgroundColor: AppTheme.border,
                 valueColor: AlwaysStoppedAnimation<Color>(
                   isScanning
-                      ? const Color(0xFFFF9800)
+                      ? AppTheme.warning
                       : (entriesCount > 0
-                          ? const Color(0xFFF44336)
-                          : const Color(0xFF4CAF50)),
+                          ? AppTheme.error
+                          : AppTheme.success),
                 ),
               ),
             ),
@@ -476,23 +478,32 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
     required bool hasCompleted,
     required List<int> ports,
   }) {
+    final bool isDark = AppTheme.isDark;
+
     if (entries.isNotEmpty) {
       final streamWord = entries.length == 1 ? 'Stream' : 'Streams';
+      final titleColor = isDark ? const Color(0xFFFF8A80) : const Color(0xFFDC2626);
+      final bodyColor = isDark ? const Color(0xFFFFCCBC) : const Color(0xFF991B1B);
+
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFFF44336).withValues(alpha: 0.14),
+          color: isDark
+              ? const Color(0xFFF44336).withValues(alpha: 0.14)
+              : const Color(0xFFFEF2F2),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: const Color(0xFFF44336).withValues(alpha: 0.65),
+            color: isDark
+                ? const Color(0xFFF44336).withValues(alpha: 0.65)
+                : AppTheme.error.withValues(alpha: 0.55),
           ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(
+            Icon(
               Icons.warning_amber_rounded,
-              color: Color(0xFFFF8A80),
+              color: titleColor,
               size: 20,
             ),
             const SizedBox(width: 10),
@@ -502,16 +513,16 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                 children: [
                   Text(
                     'Unregistered Multicast Flooding Detected (${entries.length} $streamWord)',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFFFF8A80),
+                      color: titleColor,
                     ),
                   ),
                   const SizedBox(height: 2),
-                  const Text(
+                  Text(
                     'Switch or upstream port may be flooding unregistered multicast traffic to this NIC without an active IGMP Join.',
-                    style: TextStyle(fontSize: 11.5, color: Color(0xFFFFCCBC)),
+                    style: TextStyle(fontSize: 11.5, color: bodyColor),
                   ),
                 ],
               ),
@@ -522,24 +533,31 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
     }
 
     if (hasCompleted && !isScanning) {
+      final titleColor = isDark ? const Color(0xFF81C784) : const Color(0xFF059669);
+      final bodyColor = isDark ? const Color(0xFFC8E6C9) : const Color(0xFF065F46);
+
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF4CAF50).withValues(alpha: 0.14),
+          color: isDark
+              ? const Color(0xFF4CAF50).withValues(alpha: 0.14)
+              : const Color(0xFFECFDF5),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: const Color(0xFF4CAF50).withValues(alpha: 0.65),
+            color: isDark
+                ? const Color(0xFF4CAF50).withValues(alpha: 0.65)
+                : AppTheme.success.withValues(alpha: 0.55),
           ),
         ),
-        child: const Row(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(
               Icons.verified_user_outlined,
-              color: Color(0xFF81C784),
+              color: titleColor,
               size: 20,
             ),
-            SizedBox(width: 10),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -549,13 +567,13 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF81C784),
+                      color: titleColor,
                     ),
                   ),
-                  SizedBox(height: 2),
+                  const SizedBox(height: 2),
                   Text(
                     'No unjoined multicast flooding detected — IGMP snooping appears active on this port',
-                    style: TextStyle(fontSize: 11.5, color: Color(0xFFC8E6C9)),
+                    style: TextStyle(fontSize: 11.5, color: bodyColor),
                   ),
                 ],
               ),
@@ -566,32 +584,37 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
     }
 
     if (isScanning) {
+      final warnTextColor = isDark ? const Color(0xFFFFB74D) : const Color(0xFF92400E);
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFFFF9800).withValues(alpha: 0.12),
+          color: isDark
+              ? const Color(0xFFFF9800).withValues(alpha: 0.12)
+              : const Color(0xFFFFFBEB),
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: const Color(0xFFFF9800).withValues(alpha: 0.5),
+            color: isDark
+                ? const Color(0xFFFF9800).withValues(alpha: 0.5)
+                : AppTheme.warning.withValues(alpha: 0.55),
           ),
         ),
         child: Row(
           children: [
-            const SizedBox(
+            SizedBox(
               width: 16,
               height: 16,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: Color(0xFFFFB74D),
+                color: isDark ? const Color(0xFFFFB74D) : AppTheme.warning,
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 'Listening passively on UDP ports ${ports.join(', ')} with zero IGMP Joins...',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: Color(0xFFFFB74D),
+                  color: warnTextColor,
                 ),
               ),
             ),
@@ -603,18 +626,22 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF252526),
+        color: AppTheme.surfaceHigh,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFF3E3E42)),
+        border: Border.all(color: AppTheme.borderStrong),
       ),
       child: Row(
         children: [
-          const Icon(Icons.info_outline, color: Color(0xFF64B5F6), size: 18),
+          Icon(
+            Icons.info_outline,
+            color: isDark ? const Color(0xFF64B5F6) : AppTheme.info,
+            size: 18,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               'Click "Start Scan" to listen passively on ports ${ports.join(', ')} without sending IGMP Membership Reports.',
-              style: TextStyle(fontSize: 11.5, color: Colors.grey.shade300),
+              style: TextStyle(fontSize: 11.5, color: AppTheme.textPrimary),
             ),
           ),
         ],
@@ -623,29 +650,37 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
   }
 
   Widget _buildPortErrorsNotice(Map<int, String> errors) {
+    final bool isDark = AppTheme.isDark;
     final summary =
         errors.entries.map((e) => '${e.key} (${e.value})').join('; ');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFFF9800).withValues(alpha: 0.1),
+        color: isDark
+            ? const Color(0xFFFF9800).withValues(alpha: 0.1)
+            : const Color(0xFFFFFBEB),
         borderRadius: BorderRadius.circular(4),
         border: Border.all(
-          color: const Color(0xFFFF9800).withValues(alpha: 0.35),
+          color: isDark
+              ? const Color(0xFFFF9800).withValues(alpha: 0.35)
+              : AppTheme.warning.withValues(alpha: 0.45),
         ),
       ),
       child: Row(
         children: [
-          const Icon(
+          Icon(
             Icons.warning_amber_rounded,
             size: 14,
-            color: Color(0xFFFFB74D),
+            color: isDark ? const Color(0xFFFFB74D) : AppTheme.warning,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'Skipped unavailable port(s): $summary',
-              style: const TextStyle(fontSize: 11, color: Color(0xFFFFCC80)),
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? const Color(0xFFFFCC80) : const Color(0xFF92400E),
+              ),
             ),
           ),
         ],
@@ -666,7 +701,7 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
             _scanner.isScanning
                 ? 'Awaiting incoming unjoined multicast datagrams...'
                 : 'No unjoined streams recorded.',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
           ),
         ),
       );
@@ -676,9 +711,9 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF1A1A1A),
+          color: AppTheme.surfaceAlt,
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: const Color(0xFF2C2C2C)),
+          border: Border.all(color: AppTheme.border),
         ),
         child: Column(
           mainAxisSize: scrollable ? MainAxisSize.max : MainAxisSize.min,
@@ -689,7 +724,7 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                 child: ListView.separated(
                   itemCount: entries.length,
                   separatorBuilder: (_, _) =>
-                      const Divider(height: 1, color: Color(0xFF282828)),
+                      Divider(height: 1, color: AppTheme.border),
                   itemBuilder: (_, index) => isWide
                       ? _buildWideRow(entries[index], index)
                       : _buildCompactCardRow(entries[index], index),
@@ -701,7 +736,7 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: entries.length,
                 separatorBuilder: (_, _) =>
-                    const Divider(height: 1, color: Color(0xFF282828)),
+                    Divider(height: 1, color: AppTheme.border),
                 itemBuilder: (_, index) => isWide
                     ? _buildWideRow(entries[index], index)
                     : _buildCompactCardRow(entries[index], index),
@@ -715,14 +750,14 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
   Widget _buildTableHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: const BoxDecoration(
-        color: Color(0xFF252526),
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceHigh,
+        borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(6),
           topRight: Radius.circular(6),
         ),
       ),
-      child: const Row(
+      child: Row(
         children: [
           Expanded(flex: 3, child: Text('Group IP', style: _tableHeaderStyle)),
           SizedBox(width: 64, child: Text('Port', style: _tableHeaderStyle)),
@@ -740,8 +775,14 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
   }
 
   Widget _buildWideRow(FloodedStreamEntry entry, int index) {
+    final bool isDark = AppTheme.isDark;
+    final groupColor = isDark ? const Color(0xFFFF8A80) : AppTheme.error;
+    final portColor = isDark ? const Color(0xFF64B5F6) : AppTheme.info;
+    final protoColor = isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
+    final rateColor = isDark ? const Color(0xFFFFB74D) : const Color(0xFFB45309);
+
     return Container(
-      color: index.isEven ? const Color(0xFF1E1E1E) : const Color(0xFF1A1A1A),
+      color: index.isEven ? AppTheme.surface : AppTheme.surfaceAlt,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Row(
         children: [
@@ -749,21 +790,21 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
             flex: 3,
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.gpp_maybe,
                   size: 14,
-                  color: Color(0xFFFF5252),
+                  color: AppTheme.error,
                 ),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
                     entry.groupIp,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontFamily: 'monospace',
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFFFF8A80),
+                      color: groupColor,
                     ),
                   ),
                 ),
@@ -774,10 +815,10 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
             width: 64,
             child: Text(
               entry.destinationPort.toString(),
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontFamily: 'monospace',
-                color: Color(0xFF64B5F6),
+                color: portColor,
               ),
             ),
           ),
@@ -786,10 +827,10 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
             child: Text(
               entry.protocolDisplay,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF4FC1FF),
+                color: protoColor,
               ),
             ),
           ),
@@ -798,10 +839,10 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
             child: Text(
               entry.sourceIp,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11.5,
                 fontFamily: 'monospace',
-                color: Colors.white70,
+                color: AppTheme.textPrimary,
               ),
             ),
           ),
@@ -809,10 +850,10 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
             flex: 2,
             child: Text(
               '${entry.packetCount} pkts',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11.5,
                 fontWeight: FontWeight.bold,
-                color: Colors.white,
+                color: AppTheme.textPrimary,
               ),
             ),
           ),
@@ -820,10 +861,10 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
             flex: 2,
             child: Text(
               entry.formattedBitrate,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11.5,
                 fontFamily: 'monospace',
-                color: Color(0xFFFFB74D),
+                color: rateColor,
               ),
             ),
           ),
@@ -837,33 +878,37 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
   }
 
   Widget _buildCompactCardRow(FloodedStreamEntry entry, int index) {
+    final bool isDark = AppTheme.isDark;
+    final groupColor = isDark ? const Color(0xFFFF8A80) : AppTheme.error;
+    final protoColor = isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
+
     return Container(
-      color: index.isEven ? const Color(0xFF1E1E1E) : const Color(0xFF1A1A1A),
+      color: index.isEven ? AppTheme.surface : AppTheme.surfaceAlt,
       padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.gpp_maybe, size: 14, color: Color(0xFFFF5252)),
+              Icon(Icons.gpp_maybe, size: 14, color: AppTheme.error),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   entry.endpoint,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12.5,
                     fontFamily: 'monospace',
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFFFF8A80),
+                    color: groupColor,
                   ),
                 ),
               ),
               Text(
                 entry.protocolDisplay,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF4FC1FF),
+                  color: protoColor,
                 ),
               ),
             ],
@@ -874,10 +919,10 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
               Expanded(
                 child: Text(
                   'Src: ${entry.sourceIp} · ${entry.packetCount} pkts · ${entry.formattedBitrate}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     fontFamily: 'monospace',
-                    color: Colors.white70,
+                    color: AppTheme.textPrimary,
                   ),
                 ),
               ),
@@ -891,11 +936,14 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
   }
 
   Widget _buildAdoptButton(FloodedStreamEntry entry) {
+    final bool isDark = AppTheme.isDark;
     return ElevatedButton.icon(
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF2196F3).withValues(alpha: 0.22),
-        foregroundColor: const Color(0xFF64B5F6),
-        side: const BorderSide(color: Color(0xFF2196F3)),
+        backgroundColor: AppTheme.info.withValues(alpha: isDark ? 0.22 : 0.10),
+        foregroundColor: isDark ? const Color(0xFF64B5F6) : AppTheme.info,
+        elevation: 0,
+        shadowColor: Colors.transparent,
+        side: BorderSide(color: AppTheme.info),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         minimumSize: const Size(0, 30),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
@@ -912,8 +960,8 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
   }
 }
 
-const TextStyle _tableHeaderStyle = TextStyle(
-  fontSize: 11,
-  fontWeight: FontWeight.bold,
-  color: Colors.grey,
-);
+TextStyle get _tableHeaderStyle => TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.bold,
+      color: AppTheme.textSecondary,
+    );

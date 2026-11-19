@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../../domain/models/dscp_preset.dart';
 import '../../../../domain/models/multicast_config.dart';
 import '../../../../domain/models/multicast_stats.dart';
+import '../../../theme/app_theme.dart';
 import '../../dashboard/view_models/igmp_tester_view_model.dart';
 import 'flooded_streams_sheet.dart';
 
@@ -59,11 +60,15 @@ class ReceiverPanel extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Row(
+        backgroundColor: AppTheme.surfaceElevated,
+        title: Row(
           children: [
-            Icon(Icons.hearing_outlined, color: Color(0xFFFF9800), size: 20),
-            SizedBox(width: 8),
-            Text('Configure No-Subscription Server Port', style: TextStyle(fontSize: 15)),
+            Icon(Icons.hearing_outlined, color: AppTheme.warning, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Configure No-Subscription Server Port',
+              style: TextStyle(fontSize: 15, color: AppTheme.textPrimary),
+            ),
           ],
         ),
         content: SizedBox(
@@ -72,9 +77,9 @@ class ReceiverPanel extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Bind a UDP socket on this port WITHOUT sending an IGMP Join to test if the network switch floods unsubscribed multicast streams.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -94,7 +99,10 @@ class ReceiverPanel extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF9800)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.warning,
+              foregroundColor: Colors.black,
+            ),
             onPressed: () {
               final p = int.tryParse(ctrl.text.trim());
               if (p != null && p >= 1 && p <= 65535) {
@@ -122,6 +130,18 @@ class ReceiverPanel extends StatelessWidget {
     final isPassivePortActive = vm.activePassivePorts.contains(passivePort);
     final unsubscribed = vm.unsubscribedStreams;
 
+    final bool isDark = AppTheme.isDark;
+    final infoText = isDark ? const Color(0xFF64B5F6) : AppTheme.info;
+    final warnText = isDark ? const Color(0xFFFFB74D) : const Color(0xFFB45309);
+    final successText = isDark ? const Color(0xFF81C784) : AppTheme.success;
+    final fastLeaveLabelColor = isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857);
+    final ssmAccent = isDark ? const Color(0xFF4DD0E1) : const Color(0xFF0E7490);
+    final scanBorderColor = vm.isFloodingScanRunning
+        ? (isDark ? const Color(0xFF00BCD4) : const Color(0xFF0891B2))
+        : (isDark ? const Color(0xFF26A69A) : const Color(0xFF0F766E));
+    final bandwidthColor = isDark ? const Color(0xFFBA68C8) : const Color(0xFF7E22CE);
+    final jitterColor = isDark ? const Color(0xFF00BCD4) : const Color(0xFF0891B2);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -134,14 +154,18 @@ class ReceiverPanel extends StatelessWidget {
             spacing: 12,
             runSpacing: 8,
             children: [
-              const Row(
+              Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.call_received_rounded, color: Color(0xFF2196F3), size: 18),
-                  SizedBox(width: 8),
+                  Icon(Icons.call_received_rounded, color: AppTheme.info, size: 18),
+                  const SizedBox(width: 8),
                   Text(
                     'Multi-Group Multicast Receiver & IGMP Join Subscriptions',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
                   ),
                 ],
               ),
@@ -160,21 +184,21 @@ class ReceiverPanel extends StatelessWidget {
                         Icon(
                           Icons.shield_outlined,
                           size: 14,
-                          color: passiveOnly ? const Color(0xFFFF9800) : Colors.grey,
+                          color: passiveOnly ? AppTheme.warning : AppTheme.textSecondary,
                         ),
                         const SizedBox(width: 4),
                         Text(
                           'No-Join Mode:',
                           style: TextStyle(
                             fontSize: 12,
-                            color: passiveOnly ? const Color(0xFFFFB74D) : Colors.grey,
+                            color: passiveOnly ? warnText : AppTheme.textSecondary,
                             fontWeight: passiveOnly ? FontWeight.w600 : FontWeight.normal,
                           ),
                         ),
                         const SizedBox(width: 4),
                         Switch(
                           value: passiveOnly,
-                          activeThumbColor: const Color(0xFFFF9800),
+                          activeThumbColor: AppTheme.warning,
                           onChanged: isRunning ? null : (val) => vm.updateReceiverPassiveMode(val),
                         ),
                       ],
@@ -185,7 +209,7 @@ class ReceiverPanel extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Loopback:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text('Loopback:', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                       const SizedBox(width: 4),
                       Switch(
                         value: vm.receiverConfig.enableLoopback,
@@ -207,8 +231,8 @@ class ReceiverPanel extends StatelessWidget {
                           Icons.timer_outlined,
                           size: 14,
                           color: vm.measureFastLeave
-                              ? const Color(0xFF10B981)
-                              : Colors.grey,
+                              ? AppTheme.success
+                              : AppTheme.textSecondary,
                         ),
                         const SizedBox(width: 4),
                         Text(
@@ -216,8 +240,8 @@ class ReceiverPanel extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 12,
                             color: vm.measureFastLeave
-                                ? const Color(0xFF6EE7B7)
-                                : Colors.grey,
+                                ? fastLeaveLabelColor
+                                : AppTheme.textSecondary,
                             fontWeight: vm.measureFastLeave
                                 ? FontWeight.w600
                                 : FontWeight.normal,
@@ -226,7 +250,7 @@ class ReceiverPanel extends StatelessWidget {
                         const SizedBox(width: 4),
                         Switch(
                           value: vm.measureFastLeave,
-                          activeThumbColor: const Color(0xFF10B981),
+                          activeThumbColor: AppTheme.success,
                           onChanged: isMeasuringLeave
                               ? null
                               : (val) => vm.updateMeasureFastLeave(val),
@@ -238,9 +262,11 @@ class ReceiverPanel extends StatelessWidget {
                   // Add Group button
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2196F3).withValues(alpha: 0.22),
-                      foregroundColor: const Color(0xFF64B5F6),
-                      side: const BorderSide(color: Color(0xFF2196F3), width: 1.2),
+                      backgroundColor: AppTheme.info.withValues(alpha: isDark ? 0.22 : 0.10),
+                      foregroundColor: infoText,
+                      elevation: 0,
+                      shadowColor: Colors.transparent,
+                      side: BorderSide(color: AppTheme.info, width: 1.2),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       minimumSize: const Size(0, 36),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -258,9 +284,11 @@ class ReceiverPanel extends StatelessWidget {
                   // Batch Join Groups button
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF9800).withValues(alpha: 0.2),
-                      foregroundColor: const Color(0xFFFFB74D),
-                      side: const BorderSide(color: Color(0xFFFF9800), width: 1.2),
+                      backgroundColor: AppTheme.warning.withValues(alpha: isDark ? 0.2 : 0.10),
+                      foregroundColor: warnText,
+                      elevation: 0,
+                      shadowColor: Colors.transparent,
+                      side: BorderSide(color: AppTheme.warning, width: 1.2),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       minimumSize: const Size(0, 36),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -278,11 +306,9 @@ class ReceiverPanel extends StatelessWidget {
                   // Scan Unjoined Traffic button
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF4DD0E1),
+                      foregroundColor: ssmAccent,
                       side: BorderSide(
-                        color: vm.isFloodingScanRunning
-                            ? const Color(0xFF00BCD4)
-                            : const Color(0xFF26A69A),
+                        color: scanBorderColor,
                         width: 1.2,
                       ),
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -312,7 +338,7 @@ class ReceiverPanel extends StatelessWidget {
                 value: '${stats.activeStreamsCount} / ${streams.length}',
                 unit: 'groups',
                 icon: Icons.hub,
-                color: const Color(0xFF2196F3),
+                color: AppTheme.info,
               ),
               const SizedBox(width: 12),
               _MetricCard(
@@ -320,7 +346,7 @@ class ReceiverPanel extends StatelessWidget {
                 value: '${stats.packetsReceived} / ${stats.expectedPackets}',
                 unit: 'pkts',
                 icon: Icons.check_circle_outline,
-                color: const Color(0xFF4CAF50),
+                color: AppTheme.success,
               ),
               const SizedBox(width: 12),
               _MetricCard(
@@ -329,8 +355,8 @@ class ReceiverPanel extends StatelessWidget {
                 unit: '${stats.packetsLost} dropped',
                 icon: Icons.warning_amber_rounded,
                 color: stats.lossRatePercent > 0
-                    ? (stats.lossRatePercent > 5.0 ? const Color(0xFFF44336) : const Color(0xFFFF9800))
-                    : const Color(0xFF4CAF50),
+                    ? (stats.lossRatePercent > 5.0 ? AppTheme.error : AppTheme.warning)
+                    : AppTheme.success,
               ),
               const SizedBox(width: 12),
               _MetricCard(
@@ -338,7 +364,7 @@ class ReceiverPanel extends StatelessWidget {
                 value: stats.totalGaps.toString(),
                 unit: 'drop events',
                 icon: Icons.broken_image_outlined,
-                color: stats.totalGaps > 0 ? const Color(0xFFFF9800) : const Color(0xFF4CAF50),
+                color: stats.totalGaps > 0 ? AppTheme.warning : AppTheme.success,
               ),
             ],
           ),
@@ -352,7 +378,7 @@ class ReceiverPanel extends StatelessWidget {
                 value: stats.currentPps.toStringAsFixed(0),
                 unit: 'pps',
                 icon: Icons.speed,
-                color: const Color(0xFF2196F3),
+                color: AppTheme.info,
               ),
               const SizedBox(width: 12),
               _MetricCard(
@@ -360,7 +386,7 @@ class ReceiverPanel extends StatelessWidget {
                 value: stats.currentBitrateMbps.toStringAsFixed(2),
                 unit: 'Mbps',
                 icon: Icons.network_check,
-                color: const Color(0xFF9C27B0),
+                color: bandwidthColor,
               ),
               const SizedBox(width: 12),
               _MetricCard(
@@ -368,7 +394,7 @@ class ReceiverPanel extends StatelessWidget {
                 value: stats.jitterMs.toStringAsFixed(3),
                 unit: 'ms',
                 icon: Icons.waves,
-                color: const Color(0xFF00BCD4),
+                color: jitterColor,
               ),
               const SizedBox(width: 12),
               _MetricCard(
@@ -376,7 +402,7 @@ class ReceiverPanel extends StatelessWidget {
                 value: '${unsubscribed.length} (${stats.unsubscribedPacketsReceived})',
                 unit: 'grps (pkts)',
                 icon: unsubscribed.isNotEmpty ? Icons.gpp_maybe : Icons.verified_user_outlined,
-                color: unsubscribed.isNotEmpty ? const Color(0xFFF44336) : const Color(0xFF4CAF50),
+                color: unsubscribed.isNotEmpty ? AppTheme.error : AppTheme.success,
               ),
             ],
           ),
@@ -391,10 +417,10 @@ class ReceiverPanel extends StatelessWidget {
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isMeasuringLeave
-                          ? const Color(0xFFD97706)
+                          ? const Color(0xFFB45309)
                           : (isRunning
-                              ? const Color(0xFF8B0000)
-                              : (passiveOnly ? const Color(0xFFE65100) : const Color(0xFF2196F3))),
+                              ? (isDark ? const Color(0xFF8B0000) : AppTheme.error)
+                              : (passiveOnly ? const Color(0xFFC2410C) : AppTheme.info)),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
@@ -465,12 +491,12 @@ class ReceiverPanel extends StatelessWidget {
             children: [
               Text(
                 'Subscribed Multicast Groups (${streams.length})',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textSecondary),
               ),
               if (streams.isNotEmpty)
                 Text(
                   'Monitor continuity, drops, and jitter across each individual group',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                  style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
                 ),
             ],
           ),
@@ -479,23 +505,23 @@ class ReceiverPanel extends StatelessWidget {
           // Table Content
           Container(
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1E1E),
+              color: AppTheme.surface,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: const Color(0xFF2C2C2C)),
+              border: Border.all(color: AppTheme.border),
             ),
             child: Column(
               children: [
                 // Table Columns
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF252526),
-                    borderRadius: BorderRadius.only(
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceHigh,
+                    borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(6),
                       topRight: Radius.circular(6),
                     ),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
                       SizedBox(width: 40, child: Text('Status', style: _headerStyle)),
                       Expanded(flex: 3, child: Text('Stream / Group Name', style: _headerStyle)),
@@ -511,12 +537,12 @@ class ReceiverPanel extends StatelessWidget {
                 ),
 
                 if (streams.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(32),
+                  Padding(
+                    padding: const EdgeInsets.all(32),
                     child: Center(
                       child: Text(
                         'No multicast groups subscribed. Click "Add Group" or "Batch Join" above to configure groups.',
-                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                       ),
                     ),
                   )
@@ -525,7 +551,7 @@ class ReceiverPanel extends StatelessWidget {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: streams.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFF282828)),
+                    separatorBuilder: (context, index) => Divider(height: 1, color: AppTheme.border),
                     itemBuilder: (context, index) {
                       final stream = streams[index];
                       final isStreamActive = vm.isReceiverStreamActive(stream.id);
@@ -534,16 +560,16 @@ class ReceiverPanel extends StatelessWidget {
                       final effectiveJoin = stream.joinGroup && !passiveOnly;
 
                       final lossPct = rStats?.lossRatePercent ?? 0.0;
-                      Color lossColor = const Color(0xFF4CAF50);
+                      Color lossColor = isDark ? AppTheme.success : const Color(0xFF047857);
                       if (lossPct > 5.0) {
-                        lossColor = const Color(0xFFF44336);
+                        lossColor = isDark ? AppTheme.error : const Color(0xFFB91C1C);
                       } else if (lossPct > 0.0) {
-                        lossColor = const Color(0xFFFF9800);
+                        lossColor = warnText;
                       }
 
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        color: index % 2 == 0 ? const Color(0xFF1E1E1E) : const Color(0xFF1A1A1A),
+                        color: index % 2 == 0 ? AppTheme.surface : AppTheme.surfaceAlt,
                         child: Row(
                           children: [
                             // Status Indicator
@@ -555,10 +581,10 @@ class ReceiverPanel extends StatelessWidget {
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   color: isStreamMeasuring
-                                      ? const Color(0xFFD97706)
+                                      ? AppTheme.warning
                                       : (isStreamActive
-                                          ? (effectiveJoin ? const Color(0xFF2196F3) : const Color(0xFFFF9800))
-                                          : const Color(0xFF555555)),
+                                          ? (effectiveJoin ? AppTheme.info : AppTheme.warning)
+                                          : AppTheme.textMuted),
                                 ),
                               ),
                             ),
@@ -572,15 +598,19 @@ class ReceiverPanel extends StatelessWidget {
                                   Text(
                                     stream.name,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppTheme.textPrimary,
+                                    ),
                                   ),
                                   if (stream.isSsm && stream.hasSourceFilter)
                                     Text(
                                       'src: ${stream.normalizedSourceIp}',
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 10,
-                                        color: Color(0xFF4DD0E1),
+                                        color: ssmAccent,
                                         fontFamily: 'monospace',
                                       ),
                                     ),
@@ -594,8 +624,8 @@ class ReceiverPanel extends StatelessWidget {
                                       style: TextStyle(
                                         fontSize: 10,
                                         color: rStats.dscpTransitStatus == DscpTransitStatus.preserved
-                                            ? const Color(0xFF6EE7B7)
-                                            : const Color(0xFFFCA5A5),
+                                            ? fastLeaveLabelColor
+                                            : (isDark ? const Color(0xFFFCA5A5) : AppTheme.error),
                                       ),
                                     ),
                                 ],
@@ -613,15 +643,15 @@ class ReceiverPanel extends StatelessWidget {
                                   Icon(
                                     effectiveJoin ? Icons.hub : Icons.hearing,
                                     size: 13,
-                                    color: effectiveJoin ? const Color(0xFF2196F3) : const Color(0xFFFF9800),
+                                    color: effectiveJoin ? AppTheme.info : AppTheme.warning,
                                   ),
                                   Text(
                                     stream.endpoint,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 12,
                                       fontFamily: 'monospace',
-                                      color: Color(0xFF64B5F6),
+                                      color: infoText,
                                     ),
                                   ),
                                   InkWell(
@@ -637,13 +667,13 @@ class ReceiverPanel extends StatelessWidget {
                                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                         decoration: BoxDecoration(
                                           color: effectiveJoin
-                                              ? const Color(0xFF2196F3).withValues(alpha: 0.15)
-                                              : const Color(0xFFFF9800).withValues(alpha: 0.2),
+                                              ? AppTheme.info.withValues(alpha: isDark ? 0.15 : 0.10)
+                                              : AppTheme.warning.withValues(alpha: isDark ? 0.2 : 0.12),
                                           borderRadius: BorderRadius.circular(4),
                                           border: Border.all(
                                             color: effectiveJoin
-                                                ? const Color(0xFF2196F3).withValues(alpha: 0.5)
-                                                : const Color(0xFFFF9800).withValues(alpha: 0.6),
+                                                ? AppTheme.info.withValues(alpha: 0.5)
+                                                : AppTheme.warning.withValues(alpha: 0.6),
                                           ),
                                         ),
                                         child: Text(
@@ -651,9 +681,7 @@ class ReceiverPanel extends StatelessWidget {
                                           style: TextStyle(
                                             fontSize: 9.5,
                                             fontWeight: FontWeight.w600,
-                                            color: effectiveJoin
-                                                ? const Color(0xFF64B5F6)
-                                                : const Color(0xFFFFB74D),
+                                            color: effectiveJoin ? infoText : warnText,
                                           ),
                                         ),
                                       ),
@@ -667,18 +695,18 @@ class ReceiverPanel extends StatelessWidget {
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFF00BCD4).withValues(alpha: 0.15),
+                                          color: ssmAccent.withValues(alpha: isDark ? 0.15 : 0.10),
                                           borderRadius: BorderRadius.circular(4),
                                           border: Border.all(
-                                            color: const Color(0xFF00BCD4).withValues(alpha: 0.5),
+                                            color: ssmAccent.withValues(alpha: 0.5),
                                           ),
                                         ),
-                                        child: const Text(
+                                        child: Text(
                                           'SSM (S, G)',
                                           style: TextStyle(
                                             fontSize: 9.5,
                                             fontWeight: FontWeight.w600,
-                                            color: Color(0xFF4DD0E1),
+                                            color: ssmAccent,
                                           ),
                                         ),
                                       ),
@@ -692,7 +720,7 @@ class ReceiverPanel extends StatelessWidget {
                               flex: 2,
                               child: Text(
                                 rStats != null ? '${rStats.packetsReceived}' : '0',
-                                style: const TextStyle(fontSize: 11, color: Colors.white70),
+                                style: TextStyle(fontSize: 11, color: AppTheme.textPrimary),
                               ),
                             ),
 
@@ -704,7 +732,7 @@ class ReceiverPanel extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
-                                  color: isStreamActive ? lossColor : Colors.grey,
+                                  color: isStreamActive ? lossColor : AppTheme.textSecondary,
                                 ),
                               ),
                             ),
@@ -716,7 +744,9 @@ class ReceiverPanel extends StatelessWidget {
                                 rStats != null ? '${rStats.totalGaps}' : '0',
                                 style: TextStyle(
                                   fontSize: 11,
-                                  color: (rStats?.totalGaps ?? 0) > 0 ? const Color(0xFFFF9800) : Colors.grey,
+                                  color: (rStats?.totalGaps ?? 0) > 0
+                                      ? warnText
+                                      : AppTheme.textSecondary,
                                 ),
                               ),
                             ),
@@ -731,7 +761,7 @@ class ReceiverPanel extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontFamily: 'monospace',
-                                  color: isStreamActive ? const Color(0xFF81C784) : Colors.grey,
+                                  color: isStreamActive ? successText : AppTheme.textSecondary,
                                 ),
                               ),
                             ),
@@ -741,7 +771,7 @@ class ReceiverPanel extends StatelessWidget {
                               flex: 2,
                               child: Text(
                                 rStats != null ? '${rStats.jitterMs.toStringAsFixed(2)} ms' : '—',
-                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                               ),
                             ),
 
@@ -763,8 +793,8 @@ class ReceiverPanel extends StatelessWidget {
                                           : (isStreamActive ? Icons.stop_circle_outlined : Icons.play_circle_fill),
                                       size: 18,
                                       color: isStreamMeasuring
-                                          ? const Color(0xFFD97706)
-                                          : (isStreamActive ? const Color(0xFFF44336) : const Color(0xFF2196F3)),
+                                          ? AppTheme.warning
+                                          : (isStreamActive ? AppTheme.error : AppTheme.info),
                                     ),
                                     tooltip: isStreamMeasuring
                                         ? 'Abort Leave Measurement'
@@ -778,7 +808,7 @@ class ReceiverPanel extends StatelessWidget {
                                       fixedSize: const Size(28, 28),
                                       padding: EdgeInsets.zero,
                                     ),
-                                    icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.grey),
+                                    icon: Icon(Icons.edit_outlined, size: 16, color: AppTheme.textSecondary),
                                     tooltip: 'Edit Group',
                                     onPressed: (isStreamActive || isStreamMeasuring)
                                         ? null
@@ -791,7 +821,7 @@ class ReceiverPanel extends StatelessWidget {
                                       fixedSize: const Size(28, 28),
                                       padding: EdgeInsets.zero,
                                     ),
-                                    icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
+                                    icon: Icon(Icons.delete_outline, size: 16, color: AppTheme.textSecondary),
                                     tooltip: 'Remove Group',
                                     onPressed: (isStreamActive || isStreamMeasuring)
                                         ? null
@@ -815,9 +845,9 @@ class ReceiverPanel extends StatelessWidget {
             height: 130,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1E1E),
+              color: AppTheme.surface,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: const Color(0xFF2C2C2C)),
+              border: Border.all(color: AppTheme.border),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -825,13 +855,17 @@ class ReceiverPanel extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
+                    Text(
                       'Live Aggregate Inbound Throughput Stability (Mbps)',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textSecondary,
+                      ),
                     ),
                     Text(
                       'Aggregate: ${stats.currentBitrateMbps.toStringAsFixed(2)} Mbps',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF2196F3)),
+                      style: TextStyle(fontSize: 11, color: AppTheme.info),
                     ),
                   ],
                 ),
@@ -841,14 +875,74 @@ class ReceiverPanel extends StatelessWidget {
                       ? Center(
                           child: Text(
                             isRunning ? 'Collecting aggregate throughput telemetry...' : 'Receivers are idle',
-                            style: const TextStyle(fontSize: 11, color: Colors.grey),
+                            style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                           ),
                         )
                       : LineChart(
                           LineChartData(
-                            gridData: const FlGridData(show: false),
-                            titlesData: const FlTitlesData(show: false),
-                            borderData: FlBorderData(show: false),
+                            gridData: FlGridData(
+                              show: true,
+                              drawVerticalLine: false,
+                              getDrawingHorizontalLine: (_) => FlLine(
+                                color: AppTheme.border,
+                                strokeWidth: 0.8,
+                              ),
+                            ),
+                            titlesData: FlTitlesData(
+                              show: true,
+                              topTitles: const AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                              rightTitles: const AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                              bottomTitles: const AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                              leftTitles: AxisTitles(
+                                sideTitles: SideTitles(
+                                  showTitles: true,
+                                  reservedSize: 38,
+                                  getTitlesWidget: (value, meta) => SideTitleWidget(
+                                    meta: meta,
+                                    space: 6,
+                                    fitInside: SideTitleFitInsideData.fromTitleMeta(meta),
+                                    child: Text(
+                                      value.toStringAsFixed(1),
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: AppTheme.textMuted,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            borderData: FlBorderData(
+                              show: true,
+                              border: Border(
+                                bottom: BorderSide(color: AppTheme.border),
+                                left: BorderSide(color: AppTheme.border),
+                              ),
+                            ),
+                            lineTouchData: LineTouchData(
+                              touchTooltipData: LineTouchTooltipData(
+                                getTooltipColor: (_) => AppTheme.surfaceElevated,
+                                tooltipBorder: BorderSide(color: AppTheme.borderStrong),
+                                getTooltipItems: (spots) => spots
+                                    .map(
+                                      (s) => LineTooltipItem(
+                                        '${s.y.toStringAsFixed(2)} Mbps',
+                                        TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.textPrimary,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ),
                             lineBarsData: [
                               LineChartBarData(
                                 spots: vm.rxThroughputHistory
@@ -857,13 +951,20 @@ class ReceiverPanel extends StatelessWidget {
                                     .map((e) => FlSpot(e.key.toDouble(), e.value))
                                     .toList(),
                                 isCurved: true,
-                                color: const Color(0xFF2196F3),
+                                color: AppTheme.info,
                                 barWidth: 2,
                                 isStrokeCapRound: true,
                                 dotData: const FlDotData(show: false),
                                 belowBarData: BarAreaData(
                                   show: true,
-                                  color: const Color(0xFF2196F3).withValues(alpha: 0.15),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      AppTheme.info.withValues(alpha: isDark ? 0.26 : 0.20),
+                                      AppTheme.info.withValues(alpha: 0.0),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],
@@ -898,20 +999,24 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = AppTheme.isDark;
     final hasLeak = unsubscribed.isNotEmpty;
+    final errorText = isDark ? const Color(0xFFFF8A80) : const Color(0xFF991B1B);
+    final successText = isDark ? const Color(0xFF81C784) : const Color(0xFF047857);
+    final warnText = isDark ? const Color(0xFFFFB74D) : const Color(0xFFB45309);
 
-    Color borderColor = const Color(0xFF2C2C2C);
-    Color headerBg = const Color(0xFF252526);
+    Color borderColor = AppTheme.border;
+    Color headerBg = AppTheme.surfaceHigh;
     if (hasLeak) {
-      borderColor = const Color(0xFFF44336).withValues(alpha: 0.7);
-      headerBg = const Color(0xFFF44336).withValues(alpha: 0.15);
+      borderColor = AppTheme.error.withValues(alpha: 0.7);
+      headerBg = isDark ? AppTheme.error.withValues(alpha: 0.15) : const Color(0xFFFEF2F2);
     } else if (isReceiverRunning || isPassivePortActive) {
-      borderColor = const Color(0xFF4CAF50).withValues(alpha: 0.5);
+      borderColor = AppTheme.success.withValues(alpha: 0.5);
     }
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
+        color: AppTheme.surface,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: borderColor, width: hasLeak ? 1.4 : 1.0),
       ),
@@ -943,23 +1048,27 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                           : (isReceiverRunning ? Icons.verified_user : Icons.radar),
                       size: 17,
                       color: hasLeak
-                          ? const Color(0xFFFF5252)
-                          : (isReceiverRunning ? const Color(0xFF4CAF50) : const Color(0xFFFF9800)),
+                          ? AppTheme.error
+                          : (isReceiverRunning ? AppTheme.success : AppTheme.warning),
                     ),
                     const SizedBox(width: 8),
-                    const Text(
+                    Text(
                       'IGMP Snooping & Unsubscribed Stream Verification',
-                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white),
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textPrimary,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         color: hasLeak
-                            ? const Color(0xFFF44336).withValues(alpha: 0.25)
+                            ? AppTheme.error.withValues(alpha: isDark ? 0.25 : 0.12)
                             : (isReceiverRunning
-                                ? const Color(0xFF4CAF50).withValues(alpha: 0.2)
-                                : const Color(0xFF3E3E42).withValues(alpha: 0.5)),
+                                ? AppTheme.success.withValues(alpha: isDark ? 0.2 : 0.12)
+                                : AppTheme.borderStrong.withValues(alpha: 0.5)),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
@@ -970,8 +1079,8 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                           fontSize: 10.5,
                           fontWeight: FontWeight.bold,
                           color: hasLeak
-                              ? const Color(0xFFFF8A80)
-                              : (isReceiverRunning ? const Color(0xFF81C784) : Colors.white70),
+                              ? errorText
+                              : (isReceiverRunning ? successText : AppTheme.textPrimary),
                         ),
                       ),
                     ),
@@ -987,18 +1096,22 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1E1E1E),
+                          color: AppTheme.surface,
                           borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: const Color(0xFF3E3E42)),
+                          border: Border.all(color: AppTheme.borderStrong),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.settings_ethernet, size: 13, color: Colors.grey),
+                            Icon(Icons.settings_ethernet, size: 13, color: AppTheme.textSecondary),
                             const SizedBox(width: 4),
                             Text(
                               'Port: $passivePort',
-                              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.white70),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontFamily: 'monospace',
+                                color: AppTheme.textPrimary,
+                              ),
                             ),
                           ],
                         ),
@@ -1010,11 +1123,13 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: isPassivePortActive
-                            ? const Color(0xFF8B0000)
-                            : const Color(0xFFFF9800).withValues(alpha: 0.22),
-                        foregroundColor: isPassivePortActive ? Colors.white : const Color(0xFFFFB74D),
+                            ? (isDark ? const Color(0xFF8B0000) : AppTheme.error)
+                            : AppTheme.warning.withValues(alpha: isDark ? 0.22 : 0.10),
+                        foregroundColor: isPassivePortActive ? Colors.white : warnText,
+                        elevation: isPassivePortActive ? null : 0,
+                        shadowColor: isPassivePortActive ? null : Colors.transparent,
                         side: BorderSide(
-                          color: isPassivePortActive ? const Color(0xFFF44336) : const Color(0xFFFF9800),
+                          color: isPassivePortActive ? AppTheme.error : AppTheme.warning,
                         ),
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         minimumSize: const Size(0, 30),
@@ -1034,7 +1149,8 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white70,
+                          foregroundColor: AppTheme.textPrimary,
+                          side: BorderSide(color: AppTheme.borderStrong),
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           minimumSize: const Size(0, 30),
                         ),
@@ -1057,7 +1173,7 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                 isPassivePortActive
                     ? 'Passive No-Subscription Server is listening on UDP port $passivePort without an IGMP Join. Any test streams arriving here indicate IGMP Snooping is disabled or flooding on the network.'
                     : 'Monitors open UDP receiver ports for multicast test streams that this host has NOT subscribed to (or streams started in No-Join mode). Start the No-Subscription Server to listen with zero IGMP joins.',
-                style: const TextStyle(fontSize: 11.5, color: Colors.grey),
+                style: TextStyle(fontSize: 11.5, color: AppTheme.textSecondary),
               ),
             )
           else
@@ -1067,16 +1183,16 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  color: const Color(0xFFF44336).withValues(alpha: 0.08),
-                  child: const Text(
+                  color: isDark ? AppTheme.error.withValues(alpha: 0.08) : const Color(0xFFFEF2F2),
+                  child: Text(
                     '⚠️ Unsubscribed multicast traffic is reaching this interface! This indicates IGMP Snooping may be disabled on the switch, or an upstream port is flooding unknown multicast.',
-                    style: TextStyle(fontSize: 11.5, color: Color(0xFFFF8A80)),
+                    style: TextStyle(fontSize: 11.5, color: errorText),
                   ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  color: const Color(0xFF252526),
-                  child: const Row(
+                  color: AppTheme.surfaceHigh,
+                  child: Row(
                     children: [
                       Expanded(flex: 3, child: Text('Flooded Group & Port', style: _headerStyle)),
                       Expanded(flex: 3, child: Text('Sender Source IP', style: _headerStyle)),
@@ -1091,7 +1207,7 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: unsubscribed.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFF282828)),
+                  separatorBuilder: (_, _) => Divider(height: 1, color: AppTheme.border),
                   itemBuilder: (context, idx) {
                     final item = unsubscribed[idx];
                     return Padding(
@@ -1102,15 +1218,15 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                             flex: 3,
                             child: Row(
                               children: [
-                                const Icon(Icons.gpp_maybe, size: 14, color: Color(0xFFFF5252)),
+                                Icon(Icons.gpp_maybe, size: 14, color: AppTheme.error),
                                 const SizedBox(width: 6),
                                 Text(
                                   item.endpoint,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 12,
                                     fontFamily: 'monospace',
                                     fontWeight: FontWeight.bold,
-                                    color: Color(0xFFFF8A80),
+                                    color: errorText,
                                   ),
                                 ),
                               ],
@@ -1120,24 +1236,32 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                             flex: 3,
                             child: Text(
                               item.sourceIp,
-                              style: const TextStyle(fontSize: 11.5, fontFamily: 'monospace', color: Colors.white70),
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontFamily: 'monospace',
+                                color: AppTheme.textPrimary,
+                              ),
                             ),
                           ),
                           Expanded(
                             flex: 2,
                             child: Text(
                               item.sessionId,
-                              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.grey),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontFamily: 'monospace',
+                                color: AppTheme.textSecondary,
+                              ),
                             ),
                           ),
                           Expanded(
                             flex: 2,
                             child: Text(
                               '${item.packetsReceived} pkts',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                                color: AppTheme.textPrimary,
                               ),
                             ),
                           ),
@@ -1145,10 +1269,10 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                             flex: 3,
                             child: Text(
                               '${item.currentBitrateMbps.toStringAsFixed(2)} Mbps (${item.currentPps.toStringAsFixed(0)} pps)',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11,
                                 fontFamily: 'monospace',
-                                color: Color(0xFFFFB74D),
+                                color: warnText,
                               ),
                             ),
                           ),
@@ -1177,11 +1301,11 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
   }
 }
 
-const TextStyle _headerStyle = TextStyle(
-  fontSize: 11,
-  fontWeight: FontWeight.bold,
-  color: Colors.grey,
-);
+TextStyle get _headerStyle => TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.bold,
+      color: AppTheme.textSecondary,
+    );
 
 class _MetricCard extends StatelessWidget {
   final String title;
@@ -1204,9 +1328,9 @@ class _MetricCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
+          color: AppTheme.surface,
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: const Color(0xFF2C2C2C)),
+          border: Border.all(color: AppTheme.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1219,7 +1343,7 @@ class _MetricCard extends StatelessWidget {
                   child: Text(
                     title,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                   ),
                 ),
               ],
@@ -1234,12 +1358,16 @@ class _MetricCard extends StatelessWidget {
                 children: [
                   Text(
                     value,
-                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
                   ),
                   const SizedBox(width: 4),
                   Text(
                     unit,
-                    style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                    style: TextStyle(fontSize: 10, color: AppTheme.textMuted),
                   ),
                 ],
               ),
@@ -1272,33 +1400,41 @@ class _FastLeaveLatencyPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = AppTheme.isDark;
     final Color color;
+    final Color textColor;
     final IconData icon;
     final String text;
 
     switch (result.status) {
       case FastLeaveStatus.measuring:
-        color = const Color(0xFFD97706);
+        color = AppTheme.warning;
+        textColor = isDark ? AppTheme.warning : const Color(0xFFB45309);
         icon = Icons.hourglass_top_rounded;
         text = 'Measuring Leave... (${result.trailingPacketsReceived} trailing)';
       case FastLeaveStatus.fastLeaveActive:
-        color = const Color(0xFF10B981);
+        color = AppTheme.success;
+        textColor = isDark ? AppTheme.success : const Color(0xFF047857);
         icon = Icons.bolt;
         text = '${result.leaveLatencyMs} ms — Fast-Leave · ${result.trailingPacketsReceived} trailing';
       case FastLeaveStatus.delayedPrune:
-        color = const Color(0xFFF59E0B);
+        color = AppTheme.warning;
+        textColor = isDark ? AppTheme.warning : const Color(0xFFB45309);
         icon = Icons.schedule;
         text = '${result.leaveLatencyMs} ms — Delayed Prune · ${result.trailingPacketsReceived} trailing';
       case FastLeaveStatus.noFastLeave:
-        color = const Color(0xFFEF4444);
+        color = AppTheme.error;
+        textColor = isDark ? AppTheme.error : const Color(0xFFB91C1C);
         icon = Icons.warning_amber_rounded;
         text = '${result.leaveLatencyMs} ms — No Fast-Leave · ${result.trailingPacketsReceived} trailing';
       case FastLeaveStatus.aborted:
-        color = Colors.grey;
+        color = AppTheme.textSecondary;
+        textColor = AppTheme.textSecondary;
         icon = Icons.cancel_outlined;
         text = 'Leave Measurement Aborted (${result.trailingPacketsReceived} trailing)';
       case FastLeaveStatus.notMeasured:
-        color = Colors.grey;
+        color = AppTheme.textSecondary;
+        textColor = AppTheme.textSecondary;
         icon = Icons.timer_off_outlined;
         text = 'Fast-Leave Not Measured';
     }
@@ -1306,28 +1442,28 @@ class _FastLeaveLatencyPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
+        color: color.withValues(alpha: isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: color),
+          Icon(icon, size: 14, color: textColor),
           const SizedBox(width: 6),
           Text(
             text,
             style: TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w600,
-              color: color,
+              color: textColor,
             ),
           ),
           if (onClear != null) ...[
             const SizedBox(width: 6),
             InkWell(
               onTap: onClear,
-              child: Icon(Icons.close, size: 13, color: color),
+              child: Icon(Icons.close, size: 13, color: textColor),
             ),
           ],
         ],
@@ -1343,6 +1479,7 @@ class _ReceiverQosPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = AppTheme.isDark;
     final expected = stats.expectedDscp ?? stats.senderDscpPreset;
     final expectedLabel = expected?.shortLabel ?? 'QoS';
     final rxLabel = stats.receivedDscp != null
@@ -1350,24 +1487,29 @@ class _ReceiverQosPill extends StatelessWidget {
         : 'Unverified';
 
     final Color color;
+    final Color textColor;
     final IconData icon;
     final String label;
 
     switch (stats.dscpTransitStatus) {
       case DscpTransitStatus.preserved:
-        color = const Color(0xFF10B981);
+        color = AppTheme.success;
+        textColor = isDark ? AppTheme.success : const Color(0xFF047857);
         icon = Icons.verified_outlined;
         label = 'QoS Preserved · $rxLabel';
       case DscpTransitStatus.remarkedToZero:
-        color = const Color(0xFFEF4444);
+        color = AppTheme.error;
+        textColor = isDark ? AppTheme.error : const Color(0xFFB91C1C);
         icon = Icons.gpp_bad_outlined;
         label = 'QoS Stripped · Sent $expectedLabel -> Received $rxLabel';
       case DscpTransitStatus.remarkedOrStripped:
-        color = const Color(0xFFF59E0B);
+        color = AppTheme.warning;
+        textColor = isDark ? AppTheme.warning : const Color(0xFFB45309);
         icon = Icons.warning_amber_rounded;
         label = 'QoS Remarked · Sent $expectedLabel -> Received $rxLabel';
       case DscpTransitStatus.unverified:
-        color = const Color(0xFF60A5FA);
+        color = isDark ? const Color(0xFF60A5FA) : AppTheme.info;
+        textColor = color;
         icon = Icons.label_important_outline;
         label = 'QoS Expect $expectedLabel (OS TOS Unverified)';
     }
@@ -1375,21 +1517,21 @@ class _ReceiverQosPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
+        color: color.withValues(alpha: isDark ? 0.14 : 0.10),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: color.withValues(alpha: 0.45)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: color),
+          Icon(icon, size: 14, color: textColor),
           const SizedBox(width: 6),
           Text(
             label,
             style: TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w600,
-              color: color,
+              color: textColor,
             ),
           ),
         ],
@@ -1525,6 +1667,9 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = AppTheme.isDark;
+    final accentText = isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
+    final ssmHintColor = isDark ? const Color(0xFF4DD0E1) : const Color(0xFF0E7490);
     final showSsmRangeHint =
         _joinMode == IgmpJoinMode.ssm &&
         _groupCtrl.text.trim().isNotEmpty &&
@@ -1532,17 +1677,18 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
         !MulticastReceiverStreamConfig.isSsmGroupIpv4(_groupCtrl.text.trim());
 
     return AlertDialog(
+      backgroundColor: AppTheme.surfaceElevated,
       title: Row(
         children: [
           Icon(
             _isEditing ? Icons.edit_outlined : Icons.add_circle_outline,
-            color: const Color(0xFF2196F3),
+            color: AppTheme.info,
             size: 20,
           ),
           const SizedBox(width: 8),
           Text(
             _isEditing ? 'Edit Multicast Group' : 'Add Multicast Group to Join',
-            style: const TextStyle(fontSize: 15),
+            style: TextStyle(fontSize: 15, color: AppTheme.textPrimary),
           ),
         ],
       ),
@@ -1558,13 +1704,13 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   margin: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.15),
+                    color: AppTheme.error.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                    border: Border.all(color: AppTheme.error.withValues(alpha: 0.45)),
                   ),
                   child: Text(
                     _errorText!,
-                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                    style: TextStyle(color: AppTheme.error, fontSize: 12),
                   ),
                 ),
               ],
@@ -1575,20 +1721,20 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
                   prefixIcon: Icon(Icons.tune, size: 16),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
-                dropdownColor: const Color(0xFF252526),
+                dropdownColor: AppTheme.surfaceElevated,
                 isExpanded: true,
                 items: ProtocolPreset.all.map((p) {
                   return DropdownMenuItem<ProtocolPreset>(
                     value: p,
                     child: Row(
                       children: [
-                        Icon(_getProtocolPresetIcon(p), size: 14, color: const Color(0xFF4FC1FF)),
+                        Icon(_getProtocolPresetIcon(p), size: 14, color: accentText),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             p.name,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12),
+                            style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                           ),
                         ),
                       ],
@@ -1602,22 +1748,22 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF252526),
+                    color: AppTheme.surfaceHigh,
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: const Color(0xFF2196F3).withValues(alpha: 0.4)),
+                    border: Border.all(color: AppTheme.info.withValues(alpha: 0.4)),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         _getProtocolPresetIcon(_selectedPreset),
                         size: 16,
-                        color: const Color(0xFF4FC1FF),
+                        color: accentText,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _selectedPreset.description,
-                          style: const TextStyle(fontSize: 11, color: Colors.white70),
+                          style: TextStyle(fontSize: 11, color: AppTheme.textPrimary),
                         ),
                       ),
                     ],
@@ -1639,11 +1785,11 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
                 ),
               ),
               if (showSsmRangeHint)
-                const Padding(
-                  padding: EdgeInsets.only(top: 4),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     'Tip: IANA designates 232.0.0.0/8 for standard IGMPv3 SSM groups.',
-                    style: TextStyle(fontSize: 10.5, color: Color(0xFF4DD0E1)),
+                    style: TextStyle(fontSize: 10.5, color: ssmHintColor),
                   ),
                 ),
               const SizedBox(height: 10),
@@ -1664,12 +1810,15 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
                         labelText: 'Join Mode',
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),
-                      dropdownColor: const Color(0xFF252526),
+                      dropdownColor: AppTheme.surfaceElevated,
                       isExpanded: true,
                       items: IgmpJoinMode.values.map((mode) {
                         return DropdownMenuItem<IgmpJoinMode>(
                           value: mode,
-                          child: Text(mode.label, style: const TextStyle(fontSize: 12)),
+                          child: Text(
+                            mode.label,
+                            style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                          ),
                         );
                       }).toList(),
                       onChanged: (val) {
@@ -1699,12 +1848,15 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
                   prefixIcon: Icon(Icons.label_important_outline, size: 16),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
-                dropdownColor: const Color(0xFF252526),
+                dropdownColor: AppTheme.surfaceElevated,
                 isExpanded: true,
                 items: [
-                  const DropdownMenuItem<DscpPreset?>(
+                  DropdownMenuItem<DscpPreset?>(
                     value: null,
-                    child: Text('Auto (Match Sender Tag)', style: TextStyle(fontSize: 12)),
+                    child: Text(
+                      'Auto (Match Sender Tag)',
+                      style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                    ),
                   ),
                   ...DscpPreset.values.map((preset) {
                     return DropdownMenuItem<DscpPreset?>(
@@ -1712,7 +1864,7 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
                       child: Text(
                         preset.dropdownLabel,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12),
+                        style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                       ),
                     );
                   }),
@@ -1725,9 +1877,9 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 dense: true,
-                title: const Text(
+                title: Text(
                   'Send IGMP Join (uncheck to listen passively for flooding)',
-                  style: TextStyle(fontSize: 12),
+                  style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                 ),
                 value: _joinGroup,
                 onChanged: (val) {
@@ -1746,7 +1898,10 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.info,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _submit,
           child: Text(
             _isEditing ? 'Save Changes' : 'Add Group',
@@ -1844,12 +1999,19 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = AppTheme.isDark;
+    final accentText = isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
+
     return AlertDialog(
-      title: const Row(
+      backgroundColor: AppTheme.surfaceElevated,
+      title: Row(
         children: [
-          Icon(Icons.auto_awesome_motion, color: Color(0xFF2196F3), size: 20),
-          SizedBox(width: 8),
-          Text('Batch Subscribe Multicast Groups', style: TextStyle(fontSize: 15)),
+          Icon(Icons.auto_awesome_motion, color: AppTheme.info, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            'Batch Subscribe Multicast Groups',
+            style: TextStyle(fontSize: 15, color: AppTheme.textPrimary),
+          ),
         ],
       ),
       content: SizedBox(
@@ -1859,9 +2021,9 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Quickly subscribe to multiple multicast groups to test switch IGMP snooping tables, querier capacity, and selective group pruning.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
               ),
               const SizedBox(height: 12),
               if (_errorText != null) ...[
@@ -1869,13 +2031,13 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   margin: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.15),
+                    color: AppTheme.error.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                    border: Border.all(color: AppTheme.error.withValues(alpha: 0.45)),
                   ),
                   child: Text(
                     _errorText!,
-                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                    style: TextStyle(color: AppTheme.error, fontSize: 12),
                   ),
                 ),
               ],
@@ -1886,20 +2048,20 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
                   prefixIcon: Icon(Icons.tune, size: 16),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
-                dropdownColor: const Color(0xFF252526),
+                dropdownColor: AppTheme.surfaceElevated,
                 isExpanded: true,
                 items: ProtocolPreset.all.map((p) {
                   return DropdownMenuItem<ProtocolPreset>(
                     value: p,
                     child: Row(
                       children: [
-                        Icon(_getProtocolPresetIcon(p), size: 14, color: const Color(0xFF4FC1FF)),
+                        Icon(_getProtocolPresetIcon(p), size: 14, color: accentText),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             p.name,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12),
+                            style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                           ),
                         ),
                       ],
@@ -1913,22 +2075,22 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF252526),
+                    color: AppTheme.surfaceHigh,
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: const Color(0xFF2196F3).withValues(alpha: 0.4)),
+                    border: Border.all(color: AppTheme.info.withValues(alpha: 0.4)),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         _getProtocolPresetIcon(_selectedPreset),
                         size: 16,
-                        color: const Color(0xFF4FC1FF),
+                        color: accentText,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _selectedPreset.description,
-                          style: const TextStyle(fontSize: 11, color: Colors.white70),
+                          style: TextStyle(fontSize: 11, color: AppTheme.textPrimary),
                         ),
                       ),
                     ],
@@ -1965,7 +2127,10 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 dense: true,
-                title: const Text('Increment UDP port for each group (port + 1)', style: TextStyle(fontSize: 12)),
+                title: Text(
+                  'Increment UDP port for each group (port + 1)',
+                  style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                ),
                 value: _incrementPort,
                 onChanged: (val) {
                   setState(() {
@@ -1983,7 +2148,10 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.info,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _submit,
           child: const Text('Generate & Add', style: TextStyle(color: Colors.white)),
         ),

@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:igmp_tester/data/services/igmp/igmp_querier_watchdog.dart';
 import 'package:igmp_tester/domain/models/multicast_config.dart';
 import 'package:provider/provider.dart';
+import '../../../../theme/app_theme.dart';
 import '../../view_models/igmp_tester_view_model.dart';
 
 class DeviceLibraryDialog extends StatefulWidget {
@@ -56,9 +58,23 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
     }
   }
 
+  Color _querierHealthColor(QuerierHealth health) {
+    switch (health) {
+      case QuerierHealth.active:
+        return AppTheme.success;
+      case QuerierHealth.warning:
+        return AppTheme.warning;
+      case QuerierHealth.critical:
+        return AppTheme.error;
+      case QuerierHealth.idle:
+        return AppTheme.textSecondary;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<IgmpTesterViewModel>();
+    final accentHighlight = AppTheme.isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
 
     // Extended reference library of standard multicast endpoints
     final allProfiles = [
@@ -106,10 +122,10 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
     }).toList();
 
     return Dialog(
-      backgroundColor: const Color(0xFF1E1E1E),
+      backgroundColor: AppTheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: Color(0xFF2C2C2C)),
+        side: BorderSide(color: AppTheme.border),
       ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 720, maxHeight: 580),
@@ -124,13 +140,13 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF007ACC).withValues(alpha: 0.15),
+                      color: AppTheme.accent.withValues(alpha: AppTheme.isDark ? 0.15 : 0.10),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Icon(Icons.devices, color: Color(0xFF4FC1FF), size: 20),
+                    child: Icon(Icons.devices, color: accentHighlight, size: 20),
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -140,19 +156,19 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 0.8,
-                            color: Colors.white,
+                            color: AppTheme.textPrimary,
                           ),
                         ),
-                        SizedBox(height: 2),
+                        const SizedBox(height: 2),
                         Text(
                           'Known Network Suite devices, AV multicast profiles, and switch querier endpoints',
-                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                          style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                         ),
                       ],
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close, size: 18),
+                    icon: Icon(Icons.close, size: 18, color: AppTheme.textSecondary),
                     tooltip: 'Close',
                     onPressed: () => Navigator.of(context).pop(),
                   ),
@@ -163,21 +179,30 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
               // Search Input
               TextField(
                 controller: _searchController,
+                style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
                 decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.search, size: 16),
+                  prefixIcon: Icon(Icons.search, size: 16, color: AppTheme.textSecondary),
                   hintText: 'Search multicast protocols, groups, ports, or hardware...',
-                  hintStyle: const TextStyle(fontSize: 12, color: Colors.grey),
+                  hintStyle: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                   isDense: true,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   filled: true,
-                  fillColor: const Color(0xFF252526),
+                  fillColor: AppTheme.surfaceHigh,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(6),
-                    borderSide: const BorderSide(color: Color(0xFF3E3E42)),
+                    borderSide: BorderSide(color: AppTheme.borderStrong),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                    borderSide: BorderSide(color: AppTheme.borderStrong),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6),
+                    borderSide: BorderSide(color: AppTheme.accent, width: 1.5),
                   ),
                   suffixIcon: _searchQuery.isNotEmpty
                       ? IconButton(
-                          icon: const Icon(Icons.clear, size: 14),
+                          icon: Icon(Icons.clear, size: 14, color: AppTheme.textSecondary),
                           onPressed: () {
                             _searchController.clear();
                             setState(() => _searchQuery = '');
@@ -192,10 +217,10 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
               // Tab Selector
               TabBar(
                 controller: _tabController,
-                indicatorColor: const Color(0xFF007ACC),
+                indicatorColor: AppTheme.accent,
                 indicatorWeight: 2,
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.grey,
+                labelColor: AppTheme.textPrimary,
+                unselectedLabelColor: AppTheme.textSecondary,
                 labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                 tabs: const [
                   Tab(text: 'Multicast Profiles & Presets'),
@@ -211,16 +236,16 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                   children: [
                     // Tab 1: Profiles
                     filteredProfiles.isEmpty
-                        ? const Center(
+                        ? Center(
                             child: Text(
                               'No matching multicast profiles found.',
-                              style: TextStyle(color: Colors.grey, fontSize: 12),
+                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                             ),
                           )
                         : ListView.separated(
                             itemCount: filteredProfiles.length,
                             separatorBuilder: (context, index) =>
-                                const Divider(height: 1, color: Color(0xFF2C2C2C)),
+                                Divider(height: 1, color: AppTheme.border),
                             itemBuilder: (context, index) {
                               final profile = filteredProfiles[index];
                               return ListTile(
@@ -233,24 +258,24 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                                   width: 32,
                                   height: 32,
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF252526),
+                                    color: AppTheme.surfaceHigh,
                                     borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(color: const Color(0xFF3E3E42)),
+                                    border: Border.all(color: AppTheme.borderStrong),
                                   ),
                                   child: Icon(
                                     _getCategoryIcon(profile.category),
                                     size: 16,
-                                    color: const Color(0xFF4FC1FF),
+                                    color: accentHighlight,
                                   ),
                                 ),
                                 title: Row(
                                   children: [
                                     Text(
                                       profile.name,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold,
-                                        color: Colors.white,
+                                        color: AppTheme.textPrimary,
                                       ),
                                     ),
                                     const SizedBox(width: 8),
@@ -260,15 +285,15 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                                         vertical: 2,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF007ACC).withValues(alpha: 0.2),
+                                        color: AppTheme.accent.withValues(alpha: AppTheme.isDark ? 0.2 : 0.10),
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: Text(
                                         '${profile.defaultGroup}:${profile.defaultPort}',
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 10,
                                           fontFamily: 'monospace',
-                                          color: Color(0xFF4FC1FF),
+                                          color: accentHighlight,
                                         ),
                                       ),
                                     ),
@@ -276,13 +301,15 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                                 ),
                                 subtitle: Text(
                                   '${profile.description} • ${profile.packetsPerSecond} pps (${profile.packetSizeBytes}B)',
-                                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                  style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                                 ),
                                 trailing: ElevatedButton.icon(
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF007ACC).withValues(alpha: 0.2),
-                                    foregroundColor: const Color(0xFF4FC1FF),
-                                    side: const BorderSide(color: Color(0xFF007ACC)),
+                                    backgroundColor: AppTheme.accent.withValues(alpha: AppTheme.isDark ? 0.2 : 0.10),
+                                    foregroundColor: accentHighlight,
+                                    elevation: 0,
+                                    shadowColor: Colors.transparent,
+                                    side: BorderSide(color: AppTheme.accent),
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                     minimumSize: Size.zero,
                                     shape: RoundedRectangleBorder(
@@ -321,14 +348,14 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                     // Tab 2: Interfaces & Querier
                     ListView(
                       children: [
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 6),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
                           child: Text(
                             'Active Network Interfaces',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF4FC1FF),
+                              color: accentHighlight,
                             ),
                           ),
                         ),
@@ -336,17 +363,17 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                           (iface) => ListTile(
                             dense: true,
                             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                            leading: const Icon(Icons.settings_ethernet, size: 16, color: Colors.grey),
+                            leading: Icon(Icons.settings_ethernet, size: 16, color: AppTheme.textSecondary),
                             title: Text(
                               iface.displayName,
-                              style: const TextStyle(fontSize: 12, color: Colors.white),
+                              style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                             ),
                             subtitle: Text(
                               'IP: ${iface.ip} • Subnet: ${iface.subnetMask} • Interface: ${iface.name}',
-                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                             ),
                             trailing: IconButton(
-                              icon: const Icon(Icons.copy, size: 14),
+                              icon: Icon(Icons.copy, size: 14, color: AppTheme.textSecondary),
                               tooltip: 'Copy IP',
                               onPressed: () {
                                 Clipboard.setData(ClipboardData(text: iface.ip));
@@ -358,16 +385,16 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                           ),
                         ),
                         const SizedBox(height: 12),
-                        const Divider(height: 1, color: Color(0xFF2C2C2C)),
+                        Divider(height: 1, color: AppTheme.border),
                         const SizedBox(height: 8),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 6),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
                           child: Text(
                             'IGMP Querier Status',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF4FC1FF),
+                              color: accentHighlight,
                             ),
                           ),
                         ),
@@ -377,15 +404,15 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                           leading: Icon(
                             Icons.router,
                             size: 16,
-                            color: Color(vm.querierStatus.health.colorHex),
+                            color: _querierHealthColor(vm.querierStatus.health),
                           ),
                           title: Text(
                             'Querier IP: ${vm.querierStatus.querierIp ?? 'Unknown / Not Detected'}',
-                            style: const TextStyle(fontSize: 12, color: Colors.white),
+                            style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                           ),
                           subtitle: Text(
                             'State: ${vm.querierStatus.health.label} • Last Query: ${vm.querierStatus.secondsSinceLastQuery != null ? '${vm.querierStatus.secondsSinceLastQuery}s ago' : 'No queries observed yet'}',
-                            style: const TextStyle(fontSize: 11, color: Colors.grey),
+                            style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                           ),
                         ),
                       ],

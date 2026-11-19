@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,8 +13,12 @@ import 'package:igmp_tester/domain/models/network_interface_info.dart';
 import 'package:igmp_tester/main.dart';
 import 'package:igmp_tester/ui/features/dashboard/view_models/igmp_tester_view_model.dart';
 import 'package:igmp_tester/ui/features/dashboard/views/igmp_tester_home_screen.dart';
+import 'package:igmp_tester/ui/features/igmp_monitor/views/igmp_query_log_table.dart';
 import 'package:igmp_tester/ui/features/receiver/views/flooded_streams_sheet.dart';
+import 'package:igmp_tester/ui/features/receiver/views/receiver_panel.dart';
+import 'package:igmp_tester/ui/features/sender/views/sender_panel.dart';
 import 'package:igmp_tester/ui/theme/app_theme.dart';
+import 'package:igmp_tester/ui/widgets/guided_tour_overlay.dart';
 
 class _TestIfaceService extends NetworkInterfaceService {
   @override
@@ -198,5 +203,163 @@ void main() {
     await tester.tap(find.text('Measuring Leave...'));
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.textContaining('Leave Measurement Aborted'), findsOneWidget);
+  });
+
+  testWidgets('Issue #2 desktop walkthrough: Load Demo steps 1..5, Finish & Clear, and Exit Demo clear demo data', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+    addTearDown(() => AppTheme.isDark = true);
+
+    final vm = IgmpTesterViewModel(
+      interfaceService: _TestIfaceService(),
+      snifferService: _TestSnifferService(),
+    );
+    addTearDown(vm.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: vm,
+        child: MaterialApp(
+          theme: AppTheme.darkTheme(),
+          home: const IgmpTesterHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(vm.isDemoMode, isFalse);
+    expect(find.text('Load Demo'), findsOneWidget);
+    expect(find.byType(GuidedTourOverlay), findsOneWidget);
+    expect(find.textContaining('DEMO WALKTHROUGH'), findsNothing);
+
+    // Start walkthrough via Load Demo
+    await tester.tap(find.text('Load Demo'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(vm.isDemoMode, isTrue);
+    expect(vm.senderConfig.streams.length, equals(10));
+    expect(vm.receiverConfig.streams.length, equals(10));
+    expect(vm.igmpEvents.length, equals(4));
+    expect(find.text('Exit Demo'), findsOneWidget);
+    expect(find.text('DEMO WALKTHROUGH • STEP 1 OF 5'), findsOneWidget);
+    expect(find.text('Zone 2: Multicast Bind Interface'), findsOneWidget);
+
+    // Step 2
+    await tester.tap(find.text('Next'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('DEMO WALKTHROUGH • STEP 2 OF 5'), findsOneWidget);
+    expect(find.text('Zone 3: Master Multicast Start/Stop'), findsOneWidget);
+
+    // Step 3 (Tab 0: SenderPanel)
+    await tester.tap(find.text('Next'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('DEMO WALKTHROUGH • STEP 3 OF 5'), findsOneWidget);
+    expect(find.text('Multicast Stream Configuration Panel'), findsOneWidget);
+    expect(find.byType(SenderPanel), findsOneWidget);
+
+    // Step 4 (Tab 1: ReceiverPanel)
+    await tester.tap(find.text('Next'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('DEMO WALKTHROUGH • STEP 4 OF 5'), findsOneWidget);
+    expect(find.text('Active Streams & Telemetry Table'), findsOneWidget);
+    expect(find.byType(ReceiverPanel), findsOneWidget);
+
+    // Step 5 (Tab 3: IgmpQueryLogTable)
+    await tester.tap(find.text('Next'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('DEMO WALKTHROUGH • STEP 5 OF 5'), findsOneWidget);
+    expect(find.text('IGMP Query Sniffer & Event Log'), findsOneWidget);
+    expect(find.byType(IgmpQueryLogTable), findsOneWidget);
+    expect(find.text('Finish & Clear'), findsOneWidget);
+
+    // Finish & Clear closes overlay and clears demo data
+    await tester.tap(find.text('Finish & Clear'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(vm.isDemoMode, isFalse);
+    expect(vm.senderConfig.streams, isEmpty);
+    expect(vm.receiverConfig.streams, isEmpty);
+    expect(vm.igmpEvents, isEmpty);
+    expect(find.textContaining('DEMO WALKTHROUGH'), findsNothing);
+    expect(find.text('Load Demo'), findsOneWidget);
+
+    // Re-enter demo and verify TopControlBar Exit Demo clears demo mode and data
+    await tester.tap(find.text('Load Demo'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(vm.isDemoMode, isTrue);
+    expect(vm.senderConfig.streams.length, equals(10));
+
+    final exitDemoButton = tester.widget<OutlinedButton>(
+      find.ancestor(
+        of: find.text('Exit Demo'),
+        matching: find.byType(OutlinedButton),
+      ),
+    );
+    exitDemoButton.onPressed!.call();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(vm.isDemoMode, isFalse);
+    expect(vm.senderConfig.streams, isEmpty);
+    expect(vm.receiverConfig.streams, isEmpty);
+    expect(vm.igmpEvents, isEmpty);
+    expect(find.textContaining('DEMO WALKTHROUGH'), findsNothing);
+    expect(find.text('Load Demo'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Issue #3 theme sync: IgmpTesterApp switches live from dark to light mode cleanly', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+    addTearDown(() => AppTheme.isDark = true);
+
+    AppTheme.isDark = true;
+    var activeMode = 'dark';
+    final themeChanges = StreamController<void>.broadcast();
+    addTearDown(themeChanges.close);
+
+    final vm = IgmpTesterViewModel(
+      interfaceService: _TestIfaceService(),
+      snifferService: _TestSnifferService(),
+    );
+    addTearDown(vm.dispose);
+
+    await tester.pumpWidget(
+      IgmpTesterApp(
+        viewModel: vm,
+        themeModeLoader: () async => activeMode,
+        themeChangeStream: themeChanges.stream,
+        enableExternalThemeWatch: false,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(
+      Theme.of(tester.element(find.byType(IgmpTesterHomeScreen))).brightness,
+      Brightness.dark,
+    );
+    expect(AppTheme.isDark, isTrue);
+
+    activeMode = 'light';
+    themeChanges.add(null);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(
+      Theme.of(tester.element(find.byType(IgmpTesterHomeScreen))).brightness,
+      Brightness.light,
+    );
+    expect(AppTheme.isDark, isFalse);
+    expect(tester.takeException(), isNull);
   });
 }

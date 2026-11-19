@@ -7,6 +7,7 @@ import 'package:igmp_tester/data/services/network/network_interface_service.dart
 import 'package:igmp_tester/domain/models/dscp_preset.dart';
 import 'package:igmp_tester/domain/models/flooded_stream_entry.dart';
 import 'package:igmp_tester/domain/models/igmp_query_event.dart';
+import 'package:igmp_tester/domain/models/launch_adapter_config.dart';
 import 'package:igmp_tester/domain/models/multicast_config.dart';
 import 'package:igmp_tester/domain/models/multicast_packet.dart';
 import 'package:igmp_tester/domain/models/multicast_stats.dart';
@@ -399,6 +400,161 @@ void main() {
 
       expect(vmWithRx.dscpPolicyWarning, contains('QoS Stripped'));
       expect(vmWithRx.diagnosticWarning, contains('QoS Policy Alert'));
+    });
+
+    test('Issue #1: LaunchAdapterConfig selects by IPv4 priority, name fallback, default fallback, and preserves manual selection', () async {
+      final multiIfaces = FakeNetworkInterfaceService([
+        const NetworkInterfaceInfo(
+          name: 'lo',
+          ip: '127.0.0.1',
+          subnetMask: '255.0.0.0',
+          prefixLength: 8,
+        ),
+        const NetworkInterfaceInfo(
+          name: 'eth0',
+          ip: '192.168.1.100',
+          subnetMask: '255.255.255.0',
+          prefixLength: 24,
+        ),
+        const NetworkInterfaceInfo(
+          name: 'wlan0',
+          ip: '10.10.20.5',
+          subnetMask: '255.255.255.0',
+          prefixLength: 24,
+        ),
+      ]);
+
+      // 1. Exact IPv4 match takes priority over adapterName
+      final vmByIp = IgmpTesterViewModel(
+        interfaceService: multiIfaces,
+        snifferService: FakeQuerySnifferService(),
+        launchAdapterConfig: const LaunchAdapterConfig(
+          adapterIp: '10.10.20.5',
+          adapterName: 'eth0',
+        ),
+      );
+      addTearDown(vmByIp.dispose);
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(vmByIp.selectedInterface?.name, equals('wlan0'));
+      expect(vmByIp.selectedInterface?.ip, equals('10.10.20.5'));
+      expect(vmByIp.senderConfig.interface?.ip, equals('10.10.20.5'));
+      expect(vmByIp.receiverConfig.interface?.ip, equals('10.10.20.5'));
+
+      // Manual selectInterface + subsequent refreshInterfaces does NOT re-apply CLI override
+      const manualChoice = NetworkInterfaceInfo(
+        name: 'eth0',
+        ip: '192.168.1.100',
+        subnetMask: '255.255.255.0',
+        prefixLength: 24,
+      );
+      vmByIp.selectInterface(manualChoice);
+      await vmByIp.refreshInterfaces();
+      expect(vmByIp.selectedInterface?.name, equals('eth0'));
+      expect(vmByIp.selectedInterface?.ip, equals('192.168.1.100'));
+      expect(vmByIp.senderConfig.interface?.ip, equals('192.168.1.100'));
+      expect(vmByIp.receiverConfig.interface?.ip, equals('192.168.1.100'));
+
+      // 2. Name fallback when IP is absent or unmatched
+      final vmByName = IgmpTesterViewModel(
+        interfaceService: multiIfaces,
+        snifferService: FakeQuerySnifferService(),
+        launchAdapterConfig: const LaunchAdapterConfig(
+          adapterIp: '172.16.99.99',
+          adapterName: 'WLAN',
+        ),
+      );
+      addTearDown(vmByName.dispose);
+      await Future.delayed(const Duration(milliseconds: 50));
+      expect(vmByName.selectedInterface?.name, equals('wlan0'));
+      expect(vmByName.selectedInterface?.ip, equals('10.10.20.5'));
+
+      // 3. Default fallback when neither IP nor name matches
+      final vmFallback = IgmpTesterViewModel(
+        interfaceService: multiIfaces,
+        snifferService: FakeQuerySnifferService(),
+        launchAdapterConfig: const LaunchAdapterConfig(
+          adapterIp: '172.16.99.99',
+          adapterName: 'nonexistent0',
+        ),
+      );
+      addTearDown(vmFallback.dispose);
+      await Future.delayed(const Duration(milliseconds: 50));
+      expect(vmFallback.selectedInterface?.name, equals('eth0'));
+      expect(vmFallback.selectedInterface?.ip, equals('192.168.1.100'));
+    });
+
+    test('Issue #2: startDemoWalkthrough loads 10 Tx/Rx streams & IGMP events, and endDemoWalkthrough clears all state', () async {
+      final receiverService = MulticastReceiverService();
+      final localWatchdog = IgmpQuerierWatchdog();
+      final demoVm = IgmpTesterViewModel(
+        interfaceService: fakeIfaces,
+        snifferService: FakeQuerySnifferService(),
+        watchdog: localWatchdog,
+        receiverService: receiverService,
+      );
+      addTearDown(demoVm.dispose);
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(demoVm.isDemoMode, isFalse);
+
+      demoVm.startDemoWalkthrough();
+
+      expect(demoVm.isDemoMode, isTrue);
+      expect(demoVm.senderConfig.streams.length, equals(10));
+      expect(demoVm.receiverConfig.streams.length, equals(10));
+      expect(demoVm.igmpEvents.length, equals(4));
+      expect(demoVm.querierStatus.health, equals(QuerierHealth.active));
+      expect(demoVm.querierStatus.querierVersion, equals(IgmpProtocolVersion.igmpv3));
+      expect(demoVm.querierStatus.querierIp, equals('192.168.10.1'));
+
+      // Inject a synthetic gap to verify endDemoWalkthrough clears gaps too
+      const rxStream = MulticastReceiverStreamConfig(
+        id: 'rx_gap_demo',
+        name: 'Gap Demo',
+        groupAddress: '239.255.0.1',
+        port: 5004,
+      );
+      receiverService.addStreamForTesting(rxStream);
+      final p1 = MulticastPacket(
+        sessionId: 'demo_gap',
+        sequenceNumber: 1,
+        sendTimestampUs: DateTime.now().microsecondsSinceEpoch,
+        payloadSize: 64,
+        destinationGroup: '239.255.0.1',
+        destinationPort: 5004,
+      );
+      final p3 = MulticastPacket(
+        sessionId: 'demo_gap',
+        sequenceNumber: 3,
+        sendTimestampUs: DateTime.now().microsecondsSinceEpoch,
+        payloadSize: 64,
+        destinationGroup: '239.255.0.1',
+        destinationPort: 5004,
+      );
+      receiverService.processDatagramForTesting(
+        Datagram(p1.encode(), InternetAddress('192.168.1.50'), 40000),
+        5004,
+      );
+      receiverService.processDatagramForTesting(
+        Datagram(p3.encode(), InternetAddress('192.168.1.50'), 40000),
+        5004,
+      );
+      await Future.delayed(const Duration(milliseconds: 20));
+      expect(demoVm.gaps, isNotEmpty);
+
+      demoVm.endDemoWalkthrough();
+
+      expect(demoVm.isDemoMode, isFalse);
+      expect(demoVm.senderConfig.streams, isEmpty);
+      expect(demoVm.receiverConfig.streams, isEmpty);
+      expect(demoVm.igmpEvents, isEmpty);
+      expect(demoVm.gaps, isEmpty);
+      expect(demoVm.unsubscribedStreams, isEmpty);
+      expect(demoVm.lastLeaveLatency, isNull);
+      expect(demoVm.querierStatus.health, equals(QuerierHealth.idle));
+      expect(demoVm.querierStatus.querierVersion, equals(IgmpProtocolVersion.unknown));
+      expect(demoVm.querierStatus.querierIp, isNull);
     });
   });
 }

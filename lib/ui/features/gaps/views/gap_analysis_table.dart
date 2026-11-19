@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../../domain/models/multicast_gap_event.dart';
+import '../../../theme/app_theme.dart';
 import '../../dashboard/view_models/igmp_tester_view_model.dart';
 
 class GapAnalysisTable extends StatefulWidget {
@@ -36,9 +37,12 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
 
     if (uri != null && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Gap report saved successfully.'),
-          backgroundColor: Color(0xFF2E7D32),
+        SnackBar(
+          content: const Text(
+            'Gap report saved successfully.',
+            style: TextStyle(color: Colors.white),
+          ),
+          backgroundColor: AppTheme.success,
         ),
       );
     }
@@ -50,15 +54,28 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
     final gaps = vm.filteredGaps;
     final stats = vm.receiverStats;
 
+    final gapsBadgeColor = stats.totalGaps > 0 ? AppTheme.warning : AppTheme.success;
+    final gapsTextColor = AppTheme.isDark
+        ? gapsBadgeColor
+        : (stats.totalGaps > 0 ? const Color(0xFFB45309) : const Color(0xFF047857));
+
+    final droppedBadgeColor = stats.packetsLost > 0 ? AppTheme.error : AppTheme.success;
+    final droppedTextColor = AppTheme.isDark
+        ? droppedBadgeColor
+        : (stats.packetsLost > 0 ? const Color(0xFFB91C1C) : const Color(0xFF047857));
+
+    final durationBadgeColor =
+        AppTheme.isDark ? const Color(0xFFF472B6) : const Color(0xFFBE185D);
+
     return Column(
       children: [
         // Top Toolbar: Search & Action buttons
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E1E1E),
+            color: AppTheme.surface,
             border: Border(
-              bottom: BorderSide(color: Theme.of(context).dividerTheme.color ?? const Color(0xFF2C2C2C)),
+              bottom: BorderSide(color: AppTheme.border),
             ),
           ),
           child: Wrap(
@@ -78,12 +95,14 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
                     height: 34,
                     child: TextField(
                       controller: _searchCtrl,
+                      style: TextStyle(fontSize: 12.5, color: AppTheme.textPrimary),
                       decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.search, size: 16),
+                        prefixIcon: Icon(Icons.search, size: 16, color: AppTheme.textSecondary),
                         hintText: 'Filter by stream, group, or sequence...',
+                        hintStyle: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                         suffixIcon: _searchCtrl.text.isNotEmpty
                             ? IconButton(
-                                icon: const Icon(Icons.clear, size: 14),
+                                icon: Icon(Icons.clear, size: 14, color: AppTheme.textSecondary),
                                 onPressed: () {
                                   _searchCtrl.clear();
                                   vm.setGapFilter('');
@@ -99,17 +118,20 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
                   _SummaryBadge(
                     label: 'Total Gaps',
                     value: stats.totalGaps.toString(),
-                    color: stats.totalGaps > 0 ? const Color(0xFFFF9800) : const Color(0xFF4CAF50),
+                    color: gapsBadgeColor,
+                    textColor: gapsTextColor,
                   ),
                   _SummaryBadge(
                     label: 'Packets Dropped',
                     value: stats.packetsLost.toString(),
-                    color: stats.packetsLost > 0 ? const Color(0xFFF44336) : const Color(0xFF4CAF50),
+                    color: droppedBadgeColor,
+                    textColor: droppedTextColor,
                   ),
                   _SummaryBadge(
                     label: 'Max Gap Duration',
                     value: '${stats.maxGapDurationMs.toStringAsFixed(1)} ms',
-                    color: const Color(0xFFE91E63),
+                    color: durationBadgeColor,
+                    textColor: durationBadgeColor,
                   ),
                 ],
               ),
@@ -120,7 +142,7 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
                 children: [
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF007ACC),
+                      backgroundColor: AppTheme.accent,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       minimumSize: Size.zero,
@@ -134,8 +156,8 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.grey,
-                      side: const BorderSide(color: Color(0xFF3E3E42)),
+                      foregroundColor: AppTheme.textSecondary,
+                      side: BorderSide(color: AppTheme.borderStrong),
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       minimumSize: Size.zero,
                     ),
@@ -151,9 +173,9 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
 
         // Table Header
         Container(
-          color: const Color(0xFF252526),
+          color: AppTheme.surfaceHigh,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: const Row(
+          child: Row(
             children: [
               SizedBox(width: 45, child: Text('#', style: _headerStyle)),
               SizedBox(width: 115, child: Text('Time Detected', style: _headerStyle)),
@@ -177,28 +199,32 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
                       Icon(
                         stats.packetsReceived > 0 ? Icons.verified : Icons.timeline,
                         size: 48,
-                        color: stats.packetsReceived > 0 ? const Color(0xFF4CAF50) : Colors.grey,
+                        color: stats.packetsReceived > 0 ? AppTheme.success : AppTheme.textSecondary,
                       ),
                       const SizedBox(height: 12),
                       Text(
                         stats.packetsReceived > 0
                             ? 'No Data Gaps Detected (100% Multicast Continuity)'
                             : 'No Multicast Packets Received Yet',
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.textPrimary,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         stats.packetsReceived > 0
                             ? 'All ${stats.packetsReceived} packets across ${stats.activeStreamsCount} groups arrived sequentially.'
                             : 'Start transmitters and receivers to begin multi-stream continuity monitoring.',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                       ),
                     ],
                   ),
                 )
               : ListView.separated(
                   itemCount: gaps.length,
-                  separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFF282828)),
+                  separatorBuilder: (context, index) => Divider(height: 1, color: AppTheme.border),
                   itemBuilder: (context, index) {
                     final gap = gaps[index];
                     return _GapTableRow(
@@ -213,21 +239,23 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
   }
 }
 
-const TextStyle _headerStyle = TextStyle(
-  fontSize: 11,
-  fontWeight: FontWeight.bold,
-  color: Colors.grey,
-);
+TextStyle get _headerStyle => TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.bold,
+      color: AppTheme.textSecondary,
+    );
 
 class _SummaryBadge extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
+  final Color? textColor;
 
   const _SummaryBadge({
     required this.label,
     required this.value,
     required this.color,
+    this.textColor,
   });
 
   @override
@@ -244,11 +272,15 @@ class _SummaryBadge extends StatelessWidget {
         children: [
           Text(
             '$label: ',
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
+            style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
           ),
           Text(
             value,
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: textColor ?? color,
+            ),
           ),
         ],
       ),
@@ -267,8 +299,15 @@ class _GapTableRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = AppTheme.isDark;
+    final streamColor = isDark ? const Color(0xFF64B5F6) : AppTheme.info;
+    final seqColor = isDark ? const Color(0xFFFFB74D) : const Color(0xFFB45309);
+    final lostBgColor = isDark ? const Color(0xFF5A1D1D) : const Color(0xFFFEE2E2);
+    final lostTextColor = isDark ? const Color(0xFFFF8B8B) : const Color(0xFF991B1B);
+    final highGapColor = isDark ? const Color(0xFFF472B6) : const Color(0xFFBE185D);
+
     return Container(
-      color: gap.id % 2 == 0 ? const Color(0xFF1A1A1A) : const Color(0xFF1E1E1E),
+      color: gap.id % 2 == 0 ? AppTheme.surfaceAlt : AppTheme.surface,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
@@ -276,14 +315,18 @@ class _GapTableRow extends StatelessWidget {
             width: 45,
             child: Text(
               '#${gap.id}',
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
+              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
             ),
           ),
           SizedBox(
             width: 115,
             child: Text(
               timeFormat.format(gap.timestamp),
-              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.white70),
+              style: TextStyle(
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: AppTheme.textPrimary,
+              ),
             ),
           ),
           // Stream / Group Address
@@ -291,16 +334,16 @@ class _GapTableRow extends StatelessWidget {
             flex: 3,
             child: Row(
               children: [
-                const Icon(Icons.hub, size: 12, color: Color(0xFF2196F3)),
+                Icon(Icons.hub, size: 12, color: AppTheme.info),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
                     '${gap.streamName} (${gap.endpoint})',
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF64B5F6),
+                      color: streamColor,
                     ),
                   ),
                 ),
@@ -311,14 +354,14 @@ class _GapTableRow extends StatelessWidget {
             flex: 3,
             child: Row(
               children: [
-                const Icon(Icons.arrow_right, size: 14, color: Color(0xFFFF9800)),
+                Icon(Icons.arrow_right, size: 14, color: AppTheme.warning),
                 Text(
                   gap.sequenceRange,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'monospace',
-                    color: Color(0xFFFFB74D),
+                    color: seqColor,
                   ),
                 ),
               ],
@@ -329,12 +372,16 @@ class _GapTableRow extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFF5A1D1D),
+                color: lostBgColor,
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
                 '${gap.missingPackets} pkts lost',
-                style: const TextStyle(fontSize: 11, color: Color(0xFFFF8B8B), fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: lostTextColor,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -346,7 +393,7 @@ class _GapTableRow extends StatelessWidget {
                 fontSize: 11,
                 fontFamily: 'monospace',
                 fontWeight: FontWeight.w600,
-                color: gap.gapDurationMs > 50.0 ? const Color(0xFFE91E63) : Colors.white70,
+                color: gap.gapDurationMs > 50.0 ? highGapColor : AppTheme.textPrimary,
               ),
             ),
           ),
@@ -354,14 +401,14 @@ class _GapTableRow extends StatelessWidget {
             flex: 3,
             child: Text(
               'Seq #${gap.startSeq - 1} (${timeFormat.format(gap.lastPacketTime)})',
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
+              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
             ),
           ),
           Expanded(
             flex: 3,
             child: Text(
               'Seq #${gap.endSeq + 1} (${timeFormat.format(gap.resumedTime)})',
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
+              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
             ),
           ),
         ],

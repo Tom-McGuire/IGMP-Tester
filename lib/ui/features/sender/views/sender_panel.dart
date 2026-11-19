@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 import '../../../../domain/models/dscp_preset.dart';
 import '../../../../domain/models/multicast_config.dart';
+import '../../../theme/app_theme.dart';
 import '../../dashboard/view_models/igmp_tester_view_model.dart';
 
 class SenderPanel extends StatelessWidget {
@@ -38,6 +39,11 @@ class SenderPanel extends StatelessWidget {
     final isRunning = vm.isSenderRunning;
     final stats = vm.senderStats;
     final streams = vm.senderConfig.streams;
+    final bool isDark = AppTheme.isDark;
+    final accentText = isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
+    final warnText = isDark ? const Color(0xFFFFB74D) : const Color(0xFFB45309);
+    final successText = isDark ? const Color(0xFF81C784) : AppTheme.success;
+    final bandwidthColor = isDark ? const Color(0xFFBA68C8) : const Color(0xFF7E22CE);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -51,14 +57,18 @@ class SenderPanel extends StatelessWidget {
             spacing: 12,
             runSpacing: 8,
             children: [
-              const Row(
+              Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.send_rounded, color: Color(0xFF007ACC), size: 18),
-                  SizedBox(width: 8),
+                  Icon(Icons.send_rounded, color: AppTheme.accent, size: 18),
+                  const SizedBox(width: 8),
                   Text(
                     'Multicast Transmission & Saturation Control',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
                   ),
                 ],
               ),
@@ -69,7 +79,7 @@ class SenderPanel extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Loopback:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      Text('Loopback:', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                       const SizedBox(width: 4),
                       Switch(
                         value: vm.senderConfig.enableLoopback,
@@ -82,9 +92,11 @@ class SenderPanel extends StatelessWidget {
                   // Add Stream button
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF007ACC).withValues(alpha: 0.22),
-                      foregroundColor: const Color(0xFF4FC1FF),
-                      side: const BorderSide(color: Color(0xFF007ACC), width: 1.2),
+                      backgroundColor: AppTheme.accent.withValues(alpha: isDark ? 0.22 : 0.10),
+                      foregroundColor: accentText,
+                      elevation: 0,
+                      shadowColor: Colors.transparent,
+                      side: BorderSide(color: AppTheme.accent, width: 1.2),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       minimumSize: const Size(0, 36),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -101,9 +113,11 @@ class SenderPanel extends StatelessWidget {
                   // Batch Generator button
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF9800).withValues(alpha: 0.2),
-                      foregroundColor: const Color(0xFFFFB74D),
-                      side: const BorderSide(color: Color(0xFFFF9800), width: 1.2),
+                      backgroundColor: AppTheme.warning.withValues(alpha: isDark ? 0.2 : 0.10),
+                      foregroundColor: warnText,
+                      elevation: 0,
+                      shadowColor: Colors.transparent,
+                      side: BorderSide(color: AppTheme.warning, width: 1.2),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       minimumSize: const Size(0, 36),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -129,7 +143,7 @@ class SenderPanel extends StatelessWidget {
                 value: '${stats.activeStreamsCount} / ${streams.length}',
                 unit: 'streams',
                 icon: Icons.layers_outlined,
-                color: const Color(0xFF007ACC),
+                color: AppTheme.accent,
               ),
               const SizedBox(width: 12),
               _MetricCard(
@@ -137,7 +151,7 @@ class SenderPanel extends StatelessWidget {
                 value: stats.currentPps.toStringAsFixed(0),
                 unit: 'pps',
                 icon: Icons.speed,
-                color: const Color(0xFF2196F3),
+                color: AppTheme.info,
               ),
               const SizedBox(width: 12),
               _MetricCard(
@@ -145,7 +159,7 @@ class SenderPanel extends StatelessWidget {
                 value: stats.currentBitrateMbps.toStringAsFixed(2),
                 unit: 'Mbps',
                 icon: Icons.network_check,
-                color: const Color(0xFF9C27B0),
+                color: bandwidthColor,
               ),
               const SizedBox(width: 12),
               _MetricCard(
@@ -153,7 +167,7 @@ class SenderPanel extends StatelessWidget {
                 value: (stats.bytesSent / (1024 * 1024)).toStringAsFixed(2),
                 unit: 'MB (${stats.packetsSent} pkts)',
                 icon: Icons.data_usage,
-                color: const Color(0xFF4CAF50),
+                color: AppTheme.success,
               ),
             ],
           ),
@@ -167,7 +181,9 @@ class SenderPanel extends StatelessWidget {
                   height: 42,
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isRunning ? const Color(0xFF8B0000) : const Color(0xFF007ACC),
+                      backgroundColor: isRunning
+                          ? (isDark ? const Color(0xFF8B0000) : AppTheme.error)
+                          : AppTheme.accent,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
@@ -192,12 +208,12 @@ class SenderPanel extends StatelessWidget {
             children: [
               Text(
                 'Configured Multicast Streams (${streams.length})',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textSecondary),
               ),
               if (streams.isNotEmpty)
                 Text(
                   'Individual controls allow starting or pausing specific groups',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                  style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
                 ),
             ],
           ),
@@ -206,23 +222,23 @@ class SenderPanel extends StatelessWidget {
           // Table Content
           Container(
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1E1E),
+              color: AppTheme.surface,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: const Color(0xFF2C2C2C)),
+              border: Border.all(color: AppTheme.border),
             ),
             child: Column(
               children: [
                 // Table Columns
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF252526),
-                    borderRadius: BorderRadius.only(
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceHigh,
+                    borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(6),
                       topRight: Radius.circular(6),
                     ),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
                       SizedBox(width: 40, child: Text('Status', style: _headerStyle)),
                       Expanded(flex: 3, child: Text('Stream Name', style: _headerStyle)),
@@ -238,12 +254,12 @@ class SenderPanel extends StatelessWidget {
                 ),
 
                 if (streams.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(32),
+                  Padding(
+                    padding: const EdgeInsets.all(32),
                     child: Center(
                       child: Text(
                         'No multicast streams defined. Click "Add Stream" or "Batch Generator" above to configure test streams.',
-                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                       ),
                     ),
                   )
@@ -252,7 +268,7 @@ class SenderPanel extends StatelessWidget {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: streams.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFF282828)),
+                    separatorBuilder: (context, index) => Divider(height: 1, color: AppTheme.border),
                     itemBuilder: (context, index) {
                       final stream = streams[index];
                       final isStreamActive = vm.isSenderStreamActive(stream.id);
@@ -260,7 +276,7 @@ class SenderPanel extends StatelessWidget {
 
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        color: index % 2 == 0 ? const Color(0xFF1E1E1E) : const Color(0xFF1A1A1A),
+                        color: index % 2 == 0 ? AppTheme.surface : AppTheme.surfaceAlt,
                         child: Row(
                           children: [
                             // Status Indicator
@@ -271,7 +287,7 @@ class SenderPanel extends StatelessWidget {
                                 height: 8,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: isStreamActive ? const Color(0xFF4CAF50) : const Color(0xFF555555),
+                                  color: isStreamActive ? AppTheme.success : AppTheme.textMuted,
                                 ),
                               ),
                             ),
@@ -281,7 +297,11 @@ class SenderPanel extends StatelessWidget {
                               flex: 3,
                               child: Text(
                                 stream.name,
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.textPrimary,
+                                ),
                               ),
                             ),
 
@@ -290,14 +310,14 @@ class SenderPanel extends StatelessWidget {
                               flex: 4,
                               child: Row(
                                 children: [
-                                  const Icon(Icons.hub_outlined, size: 13, color: Color(0xFF007ACC)),
+                                  Icon(Icons.hub_outlined, size: 13, color: AppTheme.accent),
                                   const SizedBox(width: 4),
                                   Text(
                                     stream.endpoint,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 12,
                                       fontFamily: 'monospace',
-                                      color: Color(0xFF4FC1FF),
+                                      color: accentText,
                                     ),
                                   ),
                                 ],
@@ -309,7 +329,7 @@ class SenderPanel extends StatelessWidget {
                               flex: 2,
                               child: Text(
                                 '${stream.packetsPerSecond} pps',
-                                style: const TextStyle(fontSize: 11, color: Colors.white70),
+                                style: TextStyle(fontSize: 11, color: AppTheme.textPrimary),
                               ),
                             ),
 
@@ -318,7 +338,7 @@ class SenderPanel extends StatelessWidget {
                               flex: 2,
                               child: Text(
                                 '${stream.packetSizeBytes} B',
-                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                               ),
                             ),
 
@@ -345,7 +365,7 @@ class SenderPanel extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontFamily: 'monospace',
-                                  color: isStreamActive ? const Color(0xFF81C784) : Colors.grey,
+                                  color: isStreamActive ? successText : AppTheme.textSecondary,
                                 ),
                               ),
                             ),
@@ -355,7 +375,7 @@ class SenderPanel extends StatelessWidget {
                               flex: 2,
                               child: Text(
                                 sStats != null ? sStats.packetsSent.toString() : '0',
-                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                               ),
                             ),
 
@@ -374,7 +394,7 @@ class SenderPanel extends StatelessWidget {
                                     icon: Icon(
                                       isStreamActive ? Icons.pause_circle_filled : Icons.play_circle_fill,
                                       size: 18,
-                                      color: isStreamActive ? const Color(0xFFFF9800) : const Color(0xFF4CAF50),
+                                      color: isStreamActive ? AppTheme.warning : AppTheme.success,
                                     ),
                                     tooltip: isStreamActive ? 'Pause Stream' : 'Start Stream',
                                     onPressed: () => vm.toggleIndividualSenderStream(stream.id),
@@ -386,7 +406,7 @@ class SenderPanel extends StatelessWidget {
                                       fixedSize: const Size(28, 28),
                                       padding: EdgeInsets.zero,
                                     ),
-                                    icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.grey),
+                                    icon: Icon(Icons.edit_outlined, size: 16, color: AppTheme.textSecondary),
                                     tooltip: 'Edit Stream',
                                     onPressed: isStreamActive
                                         ? null
@@ -399,7 +419,7 @@ class SenderPanel extends StatelessWidget {
                                       fixedSize: const Size(28, 28),
                                       padding: EdgeInsets.zero,
                                     ),
-                                    icon: const Icon(Icons.delete_outline, size: 16, color: Colors.grey),
+                                    icon: Icon(Icons.delete_outline, size: 16, color: AppTheme.textSecondary),
                                     tooltip: 'Remove Stream',
                                     onPressed: isStreamActive ? null : () => vm.removeSenderStream(stream.id),
                                   ),
@@ -420,11 +440,11 @@ class SenderPanel extends StatelessWidget {
   }
 }
 
-const TextStyle _headerStyle = TextStyle(
-  fontSize: 11,
-  fontWeight: FontWeight.bold,
-  color: Colors.grey,
-);
+TextStyle get _headerStyle => TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.bold,
+      color: AppTheme.textSecondary,
+    );
 
 class _MetricCard extends StatelessWidget {
   final String title;
@@ -447,9 +467,9 @@ class _MetricCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
+          color: AppTheme.surface,
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: const Color(0xFF2C2C2C)),
+          border: Border.all(color: AppTheme.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -462,7 +482,7 @@ class _MetricCard extends StatelessWidget {
                   child: Text(
                     title,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                   ),
                 ),
               ],
@@ -477,12 +497,16 @@ class _MetricCard extends StatelessWidget {
                 children: [
                   Text(
                     value,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textPrimary,
+                    ),
                   ),
                   const SizedBox(width: 4),
                   Text(
                     unit,
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                    style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
                   ),
                 ],
               ),
@@ -519,17 +543,18 @@ class _DscpTagPill extends StatelessWidget {
   });
 
   Color _pillColor() {
+    final bool isDark = AppTheme.isDark;
     switch (preset) {
       case DscpPreset.bestEffort:
-        return Colors.grey;
+        return AppTheme.textSecondary;
       case DscpPreset.cs3:
-        return const Color(0xFF4FC1FF);
+        return isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
       case DscpPreset.af41:
-        return const Color(0xFF81C784);
+        return isDark ? const Color(0xFF81C784) : AppTheme.success;
       case DscpPreset.ef:
-        return const Color(0xFFFFB74D);
+        return isDark ? const Color(0xFFFFB74D) : const Color(0xFFB45309);
       case DscpPreset.cs7:
-        return const Color(0xFFE57373);
+        return isDark ? const Color(0xFFE57373) : AppTheme.error;
     }
   }
 
@@ -546,11 +571,11 @@ class _DscpTagPill extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
+          color: color.withValues(alpha: AppTheme.isDark ? 0.14 : 0.10),
           borderRadius: BorderRadius.circular(4),
           border: Border.all(
             color: hasSocketWarning
-                ? const Color(0xFFFF9800)
+                ? AppTheme.warning
                 : color.withValues(alpha: 0.45),
           ),
         ),
@@ -571,10 +596,10 @@ class _DscpTagPill extends StatelessWidget {
             ),
             if (hasSocketWarning) ...[
               const SizedBox(width: 3),
-              const Icon(
+              Icon(
                 Icons.warning_amber_rounded,
                 size: 11,
-                color: Color(0xFFFFB74D),
+                color: AppTheme.isDark ? const Color(0xFFFFB74D) : AppTheme.warning,
               ),
             ],
           ],
@@ -728,18 +753,22 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = AppTheme.isDark;
+    final accentText = isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
+
     return AlertDialog(
+      backgroundColor: AppTheme.surfaceElevated,
       title: Row(
         children: [
           Icon(
             _isEditing ? Icons.edit_outlined : Icons.add_circle_outline,
-            color: const Color(0xFF007ACC),
+            color: AppTheme.accent,
             size: 20,
           ),
           const SizedBox(width: 8),
           Text(
             _isEditing ? 'Edit Multicast Stream' : 'Add Multicast Stream',
-            style: const TextStyle(fontSize: 15),
+            style: TextStyle(fontSize: 15, color: AppTheme.textPrimary),
           ),
         ],
       ),
@@ -755,13 +784,13 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   margin: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.15),
+                    color: AppTheme.error.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                    border: Border.all(color: AppTheme.error.withValues(alpha: 0.45)),
                   ),
                   child: Text(
                     _errorText!,
-                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                    style: TextStyle(color: AppTheme.error, fontSize: 12),
                   ),
                 ),
               ],
@@ -772,20 +801,20 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
                   prefixIcon: Icon(Icons.tune, size: 16),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
-                dropdownColor: const Color(0xFF252526),
+                dropdownColor: AppTheme.surfaceElevated,
                 isExpanded: true,
                 items: ProtocolPreset.all.map((p) {
                   return DropdownMenuItem<ProtocolPreset>(
                     value: p,
                     child: Row(
                       children: [
-                        Icon(_getProtocolPresetIcon(p), size: 14, color: const Color(0xFF4FC1FF)),
+                        Icon(_getProtocolPresetIcon(p), size: 14, color: accentText),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             p.name,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12),
+                            style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                           ),
                         ),
                       ],
@@ -799,16 +828,16 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF252526),
+                    color: AppTheme.surfaceHigh,
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: const Color(0xFF007ACC).withValues(alpha: 0.4)),
+                    border: Border.all(color: AppTheme.accent.withValues(alpha: 0.4)),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         _getProtocolPresetIcon(_selectedPreset),
                         size: 16,
-                        color: const Color(0xFF4FC1FF),
+                        color: accentText,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -817,15 +846,15 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
                           children: [
                             Text(
                               _selectedPreset.description,
-                              style: const TextStyle(fontSize: 11, color: Colors.white70),
+                              style: TextStyle(fontSize: 11, color: AppTheme.textPrimary),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               'Target Bitrate: ~${_selectedPreset.approximateBitrateMbps.toStringAsFixed(2)} Mbps',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF4FC1FF),
+                                color: accentText,
                               ),
                             ),
                           ],
@@ -893,7 +922,7 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
                   prefixIcon: Icon(Icons.label_important_outline, size: 16),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
-                dropdownColor: const Color(0xFF252526),
+                dropdownColor: AppTheme.surfaceElevated,
                 isExpanded: true,
                 items: DscpPreset.values.map((preset) {
                   return DropdownMenuItem<DscpPreset>(
@@ -901,7 +930,7 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
                     child: Text(
                       preset.dropdownLabel,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
+                      style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                     ),
                   );
                 }).toList(),
@@ -921,7 +950,10 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF007ACC)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.accent,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _submit,
           child: Text(
             _isEditing ? 'Save Changes' : 'Add Stream',
@@ -1047,6 +1079,8 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = AppTheme.isDark;
+    final accentText = isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
     final count = int.tryParse(_countCtrl.text.trim()) ?? 0;
     final pps = int.tryParse(_rateCtrl.text.trim()) ?? 0;
     final size = int.tryParse(_sizeCtrl.text.trim()) ?? 0;
@@ -1054,11 +1088,15 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
     final totalBandwidthMbps = (totalPps * size * 8) / 1000000.0;
 
     return AlertDialog(
-      title: const Row(
+      backgroundColor: AppTheme.surfaceElevated,
+      title: Row(
         children: [
-          Icon(Icons.auto_awesome_motion, color: Color(0xFF007ACC), size: 20),
-          SizedBox(width: 8),
-          Text('Batch Generate Saturation Streams', style: TextStyle(fontSize: 15)),
+          Icon(Icons.auto_awesome_motion, color: AppTheme.accent, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            'Batch Generate Saturation Streams',
+            style: TextStyle(fontSize: 15, color: AppTheme.textPrimary),
+          ),
         ],
       ),
       content: SizedBox(
@@ -1068,9 +1106,9 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Instantly generate multiple multicast streams across a block of addresses to test switch IGMP snooping table capacity and network saturation.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
               ),
               const SizedBox(height: 12),
               if (_errorText != null) ...[
@@ -1078,13 +1116,13 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   margin: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.15),
+                    color: AppTheme.error.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.red.withValues(alpha: 0.4)),
+                    border: Border.all(color: AppTheme.error.withValues(alpha: 0.45)),
                   ),
                   child: Text(
                     _errorText!,
-                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                    style: TextStyle(color: AppTheme.error, fontSize: 12),
                   ),
                 ),
               ],
@@ -1095,20 +1133,20 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
                   prefixIcon: Icon(Icons.tune, size: 16),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
-                dropdownColor: const Color(0xFF252526),
+                dropdownColor: AppTheme.surfaceElevated,
                 isExpanded: true,
                 items: ProtocolPreset.all.map((p) {
                   return DropdownMenuItem<ProtocolPreset>(
                     value: p,
                     child: Row(
                       children: [
-                        Icon(_getProtocolPresetIcon(p), size: 14, color: const Color(0xFF4FC1FF)),
+                        Icon(_getProtocolPresetIcon(p), size: 14, color: accentText),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             p.name,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12),
+                            style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                           ),
                         ),
                       ],
@@ -1121,9 +1159,9 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF252526),
+                  color: AppTheme.surfaceHigh,
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: const Color(0xFF007ACC).withValues(alpha: 0.4)),
+                  border: Border.all(color: AppTheme.accent.withValues(alpha: 0.4)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1133,13 +1171,13 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
                         Icon(
                           _getProtocolPresetIcon(_selectedPreset),
                           size: 16,
-                          color: const Color(0xFF4FC1FF),
+                          color: accentText,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             _selectedPreset.description,
-                            style: const TextStyle(fontSize: 11, color: Colors.white70),
+                            style: TextStyle(fontSize: 11, color: AppTheme.textPrimary),
                           ),
                         ),
                       ],
@@ -1149,10 +1187,10 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
                       children: [
                         Text(
                           'Aggregate Saturation: $totalPps pps',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF4FC1FF),
+                            color: accentText,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -1161,7 +1199,7 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
-                            color: Colors.greenAccent.shade400,
+                            color: isDark ? Colors.greenAccent.shade400 : AppTheme.success,
                           ),
                         ),
                       ],
@@ -1224,7 +1262,10 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 dense: true,
-                title: const Text('Increment UDP port for each stream (port + 1)', style: TextStyle(fontSize: 12)),
+                title: Text(
+                  'Increment UDP port for each stream (port + 1)',
+                  style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                ),
                 value: _incrementPort,
                 onChanged: (val) {
                   setState(() {
@@ -1240,7 +1281,7 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
                   prefixIcon: Icon(Icons.label_important_outline, size: 16),
                   contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
-                dropdownColor: const Color(0xFF252526),
+                dropdownColor: AppTheme.surfaceElevated,
                 isExpanded: true,
                 items: DscpPreset.values.map((preset) {
                   return DropdownMenuItem<DscpPreset>(
@@ -1248,7 +1289,7 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
                     child: Text(
                       preset.dropdownLabel,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
+                      style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
                     ),
                   );
                 }).toList(),
@@ -1268,7 +1309,10 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF007ACC)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.accent,
+            foregroundColor: Colors.white,
+          ),
           onPressed: _submit,
           child: const Text('Generate Streams', style: TextStyle(color: Colors.white)),
         ),

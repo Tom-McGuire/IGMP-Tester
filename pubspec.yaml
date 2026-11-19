@@ -2,7 +2,7 @@ name: igmp_tester
 description: "IGMP & Multicast Network Tester for Desktop (Windows, macOS, Linux)."
 publish_to: 'none'
 
-version: 0.5.5-Beta
+version: 0.5.6-Beta
 
 environment:
   sdk: ^3.13.5
@@ -10,6 +10,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
+  network_suite_shared:
+    git:
+      url: https://github.com/Tom-McGuire/network-suite-shared.git
+      ref: main
+  sqlite3: ^3.7.1
+  sqlite3_flutter_libs: ^0.6.0+eol
+  path: ^1.9.1
 
   cupertino_icons: ^1.0.8
   provider: ^6.1.5+1

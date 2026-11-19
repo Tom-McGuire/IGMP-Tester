@@ -3,10 +3,38 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../../domain/models/igmp_query_event.dart';
 import '../../../../data/services/igmp/igmp_querier_watchdog.dart';
+import '../../../theme/app_theme.dart';
 import '../../dashboard/view_models/igmp_tester_view_model.dart';
 
 class IgmpQueryLogTable extends StatelessWidget {
   const IgmpQueryLogTable({super.key});
+
+  Color _healthColor(QuerierHealth health) {
+    switch (health) {
+      case QuerierHealth.active:
+        return AppTheme.success;
+      case QuerierHealth.warning:
+        return AppTheme.warning;
+      case QuerierHealth.critical:
+        return AppTheme.error;
+      case QuerierHealth.idle:
+        return AppTheme.textSecondary;
+    }
+  }
+
+  Color _healthTextColor(QuerierHealth health) {
+    if (AppTheme.isDark) return _healthColor(health);
+    switch (health) {
+      case QuerierHealth.active:
+        return const Color(0xFF047857);
+      case QuerierHealth.warning:
+        return const Color(0xFFB45309);
+      case QuerierHealth.critical:
+        return const Color(0xFFB91C1C);
+      case QuerierHealth.idle:
+        return AppTheme.textSecondary;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -14,13 +42,21 @@ class IgmpQueryLogTable extends StatelessWidget {
     final events = vm.igmpEvents;
     final querierStatus = vm.querierStatus;
     final timeFormat = DateFormat('HH:mm:ss.SSS');
+    final healthColor = _healthColor(querierStatus.health);
+    final healthTextColor = _healthTextColor(querierStatus.health);
+    final accentHighlight = AppTheme.isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
 
     return Column(
       children: [
         // Querier Health & Watchdog Banner
         Container(
           padding: const EdgeInsets.all(16),
-          color: const Color(0xFF1E1E1E),
+          decoration: BoxDecoration(
+            color: AppTheme.surface,
+            border: Border(
+              bottom: BorderSide(color: AppTheme.border),
+            ),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -35,9 +71,9 @@ class IgmpQueryLogTable extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
-                            color: Color(querierStatus.health.colorHex).withValues(alpha: 0.15),
+                            color: healthColor.withValues(alpha: AppTheme.isDark ? 0.15 : 0.10),
                             borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: Color(querierStatus.health.colorHex)),
+                            border: Border.all(color: healthColor.withValues(alpha: AppTheme.isDark ? 1.0 : 0.65)),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -49,7 +85,7 @@ class IgmpQueryLogTable extends StatelessWidget {
                                         ? Icons.warning_amber
                                         : Icons.info_outline),
                                 size: 15,
-                                color: Color(querierStatus.health.colorHex),
+                                color: healthColor,
                               ),
                               const SizedBox(width: 6),
                               Text(
@@ -57,7 +93,7 @@ class IgmpQueryLogTable extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
-                                  color: Color(querierStatus.health.colorHex),
+                                  color: healthTextColor,
                                 ),
                               ),
                             ],
@@ -67,13 +103,16 @@ class IgmpQueryLogTable extends StatelessWidget {
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text('Querier IP: ', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                              Text(
+                                'Querier IP: ',
+                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                              ),
                               Text(
                                 querierStatus.querierIp!,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
-                                  color: Colors.white,
+                                  color: AppTheme.textPrimary,
                                 ),
                               ),
                               if (querierStatus.querierVersion != IgmpProtocolVersion.unknown) ...[
@@ -86,14 +125,17 @@ class IgmpQueryLogTable extends StatelessWidget {
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text('Last Query: ', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                              Text(
+                                'Last Query: ',
+                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                              ),
                               Text(
                                 '${querierStatus.secondsSinceLastQuery}s ago',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: 'monospace',
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
-                                  color: Color(0xFF4FC1FF),
+                                  color: accentHighlight,
                                 ),
                               ),
                             ],
@@ -106,7 +148,9 @@ class IgmpQueryLogTable extends StatelessWidget {
                   // TShark Sniffer Toggle
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: vm.isSnifferRunning ? const Color(0xFF8B0000) : const Color(0xFF007ACC),
+                      backgroundColor: vm.isSnifferRunning
+                          ? (AppTheme.isDark ? const Color(0xFF8B0000) : AppTheme.error)
+                          : AppTheme.accent,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       minimumSize: Size.zero,
@@ -122,8 +166,8 @@ class IgmpQueryLogTable extends StatelessWidget {
 
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.grey,
-                      side: const BorderSide(color: Color(0xFF3E3E42)),
+                      foregroundColor: AppTheme.textSecondary,
+                      side: BorderSide(color: AppTheme.borderStrong),
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       minimumSize: Size.zero,
                     ),
@@ -139,8 +183,8 @@ class IgmpQueryLogTable extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11,
                   color: querierStatus.health == QuerierHealth.critical
-                      ? const Color(0xFFFF8B8B)
-                      : Colors.grey.shade400,
+                      ? (AppTheme.isDark ? const Color(0xFFFF8B8B) : AppTheme.error)
+                      : AppTheme.textSecondary,
                 ),
               ),
             ],
@@ -149,24 +193,24 @@ class IgmpQueryLogTable extends StatelessWidget {
 
         // Table Header
         Container(
-          color: const Color(0xFF252526),
+          color: AppTheme.surfaceHigh,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: const Row(
+          child: Row(
             children: [
               SizedBox(width: 96, child: Text('Timestamp', style: _headerStyle, overflow: TextOverflow.ellipsis)),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(flex: 2, child: Text('Querier / Sender IP', style: _headerStyle, overflow: TextOverflow.ellipsis)),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(flex: 2, child: Text('Destination IP', style: _headerStyle, overflow: TextOverflow.ellipsis)),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(flex: 3, child: Text('IGMP Message Type', style: _headerStyle, overflow: TextOverflow.ellipsis)),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(flex: 3, child: Text('Group Address', style: _headerStyle, overflow: TextOverflow.ellipsis)),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               SizedBox(width: 82, child: Text('Max Resp', style: _headerStyle, overflow: TextOverflow.ellipsis)),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               SizedBox(width: 82, child: Text('Version', style: _headerStyle, overflow: TextOverflow.ellipsis)),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               Expanded(flex: 3, child: Text('QQIC / QRV', style: _headerStyle, overflow: TextOverflow.ellipsis)),
             ],
           ),
@@ -179,11 +223,15 @@ class IgmpQueryLogTable extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.radar, size: 48, color: Colors.grey),
+                      Icon(Icons.radar, size: 48, color: AppTheme.textSecondary),
                       const SizedBox(height: 12),
-                      const Text(
+                      Text(
                         'No IGMP Packets Logged Yet',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white70),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.textPrimary,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -192,17 +240,17 @@ class IgmpQueryLogTable extends StatelessWidget {
                             : (vm.hasTShark
                                 ? 'Click "Start IGMP Sniffer" above to start live packet capture.'
                                 : 'Wireshark/TShark not found on PATH. Install Wireshark to enable raw IGMP capture.'),
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                       ),
                     ],
                   ),
                 )
               : ListView.separated(
                   itemCount: events.length,
-                  separatorBuilder: (context, index) => const Divider(height: 1, color: Color(0xFF282828)),
+                  separatorBuilder: (context, index) => Divider(height: 1, color: AppTheme.border),
                   itemBuilder: (context, index) {
                     final event = events[index];
-                    return _IgmpTableRow(event: event, timeFormat: timeFormat);
+                    return _IgmpTableRow(event: event, timeFormat: timeFormat, index: index);
                   },
                 ),
         ),
@@ -211,11 +259,11 @@ class IgmpQueryLogTable extends StatelessWidget {
   }
 }
 
-const TextStyle _headerStyle = TextStyle(
-  fontSize: 11,
-  fontWeight: FontWeight.bold,
-  color: Colors.grey,
-);
+TextStyle get _headerStyle => TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.bold,
+      color: AppTheme.textSecondary,
+    );
 
 class _IgmpVersionPill extends StatelessWidget {
   final IgmpProtocolVersion version;
@@ -227,15 +275,16 @@ class _IgmpVersionPill extends StatelessWidget {
   });
 
   Color _colorForVersion(IgmpProtocolVersion ver) {
+    final bool isDark = AppTheme.isDark;
     switch (ver) {
       case IgmpProtocolVersion.igmpv1:
-        return const Color(0xFFFF9800);
+        return isDark ? const Color(0xFFFF9800) : const Color(0xFFB45309);
       case IgmpProtocolVersion.igmpv2:
-        return const Color(0xFF4FC1FF);
+        return isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
       case IgmpProtocolVersion.igmpv3:
-        return const Color(0xFF10B981);
+        return isDark ? const Color(0xFF10B981) : const Color(0xFF047857);
       case IgmpProtocolVersion.unknown:
-        return const Color(0xFF9E9E9E);
+        return AppTheme.textSecondary;
     }
   }
 
@@ -249,7 +298,7 @@ class _IgmpVersionPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: color.withValues(alpha: AppTheme.isDark ? 0.15 : 0.10),
         borderRadius: BorderRadius.circular(4),
         border: Border.all(color: color.withValues(alpha: 0.55)),
       ),
@@ -269,10 +318,12 @@ class _IgmpVersionPill extends StatelessWidget {
 class _IgmpTableRow extends StatelessWidget {
   final IgmpQueryEvent event;
   final DateFormat timeFormat;
+  final int index;
 
   const _IgmpTableRow({
     required this.event,
     required this.timeFormat,
+    required this.index,
   });
 
   String _formatV3Details() {
@@ -294,13 +345,15 @@ class _IgmpTableRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color typeColor = const Color(0xFF4FC1FF);
+    final bool isDark = AppTheme.isDark;
+    Color typeColor = isDark ? const Color(0xFF4FC1FF) : AppTheme.accent;
     if (event.isGeneralQuery) {
-      typeColor = const Color(0xFF4CAF50);
+      typeColor = isDark ? const Color(0xFF4CAF50) : AppTheme.success;
     } else if (event.typeName.contains('Leave')) {
-      typeColor = const Color(0xFFFF9800);
+      typeColor = isDark ? const Color(0xFFFF9800) : const Color(0xFFB45309);
     }
 
+    final v3DetailsColor = isDark ? const Color(0xFF80CBC4) : const Color(0xFF0F766E);
     final v3Details = _formatV3Details();
     final tooltipParts = <String>[
       if (v3Details.isNotEmpty) v3Details,
@@ -309,14 +362,14 @@ class _IgmpTableRow extends StatelessWidget {
     ];
 
     Widget v3DetailsCell = v3Details.isEmpty
-        ? const Text('—', style: TextStyle(fontSize: 11, color: Colors.grey))
+        ? Text('—', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary))
         : Text(
             v3Details,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               fontFamily: 'monospace',
-              color: Color(0xFF80CBC4),
+              color: v3DetailsColor,
             ),
           );
 
@@ -328,7 +381,7 @@ class _IgmpTableRow extends StatelessWidget {
     }
 
     return Container(
-      color: const Color(0xFF1E1E1E),
+      color: index.isEven ? AppTheme.surface : AppTheme.surfaceAlt,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
@@ -337,7 +390,7 @@ class _IgmpTableRow extends StatelessWidget {
             child: Text(
               timeFormat.format(event.timestamp),
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.white70),
+              style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: AppTheme.textPrimary),
             ),
           ),
           const SizedBox(width: 8),
@@ -346,7 +399,7 @@ class _IgmpTableRow extends StatelessWidget {
             child: Text(
               event.querierIp,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.white),
+              style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: AppTheme.textPrimary),
             ),
           ),
           const SizedBox(width: 8),
@@ -355,7 +408,7 @@ class _IgmpTableRow extends StatelessWidget {
             child: Text(
               event.destinationIp,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.white70),
+              style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: AppTheme.textPrimary),
             ),
           ),
           const SizedBox(width: 8),
@@ -389,7 +442,7 @@ class _IgmpTableRow extends StatelessWidget {
             child: Text(
               event.groupAddress,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.grey),
+              style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: AppTheme.textSecondary),
             ),
           ),
           const SizedBox(width: 8),
@@ -398,7 +451,7 @@ class _IgmpTableRow extends StatelessWidget {
             child: Text(
               event.isQuery ? '${event.maxRespTimeSeconds.toStringAsFixed(1)} s' : '—',
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: Colors.white70),
+              style: TextStyle(fontSize: 11, color: AppTheme.textPrimary),
             ),
           ),
           const SizedBox(width: 8),

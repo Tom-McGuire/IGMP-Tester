@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../../../domain/models/dscp_preset.dart';
 import '../../../../domain/models/flooded_stream_entry.dart';
 import '../../../../domain/models/igmp_query_event.dart';
+import '../../../../domain/models/launch_adapter_config.dart';
 import '../../../../domain/models/multicast_config.dart';
 import '../../../../domain/models/multicast_gap_event.dart';
 import '../../../../domain/models/multicast_stats.dart';
@@ -23,6 +24,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
   final IgmpQuerierWatchdog _watchdog;
   final FloodingScannerService _floodingScannerService;
   final CsvExportService _csvService;
+  final LaunchAdapterConfig? launchAdapterConfig;
 
   StreamSubscription? _senderSub;
   StreamSubscription? _senderStreamSub;
@@ -35,6 +37,9 @@ class IgmpTesterViewModel extends ChangeNotifier {
   StreamSubscription? _snifferStatusSub;
   StreamSubscription? _watchdogSub;
   bool _scannerListenerAttached = false;
+  bool _startupAdapterApplied = false;
+  bool _isDemoMode = false;
+  bool get isDemoMode => _isDemoMode;
 
   IgmpTesterViewModel({
     NetworkInterfaceService? interfaceService,
@@ -44,6 +49,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
     IgmpQuerierWatchdog? watchdog,
     FloodingScannerService? floodingScannerService,
     CsvExportService? csvService,
+    this.launchAdapterConfig,
   })  : _interfaceService = interfaceService ?? NetworkInterfaceService(),
         _senderService = senderService ?? MulticastSenderService(),
         _receiverService = receiverService ?? MulticastReceiverService(),
@@ -297,18 +303,29 @@ class IgmpTesterViewModel extends ChangeNotifier {
   Future<void> refreshInterfaces() async {
     _interfaces = await _interfaceService.getAvailableInterfaces();
     if (_interfaces.isNotEmpty && _selectedInterface == null) {
-      final preferred = _interfaces.firstWhere(
-        (i) => i.ip != '127.0.0.1' && i.ip != '0.0.0.0',
-        orElse: () => _interfaces.first,
-      );
-      _selectedInterface = preferred;
-      _senderConfig = _senderConfig.copyWith(interface: preferred);
-      _receiverConfig = _receiverConfig.copyWith(interface: preferred);
+      final NetworkInterfaceInfo? preferred;
+      if (!_startupAdapterApplied &&
+          launchAdapterConfig != null &&
+          launchAdapterConfig!.hasAdapterOverride) {
+        preferred = launchAdapterConfig!.selectInitialInterface(_interfaces);
+      } else {
+        preferred = _interfaces.firstWhere(
+          (i) => i.ip != '127.0.0.1' && i.ip != '0.0.0.0',
+          orElse: () => _interfaces.first,
+        );
+      }
+      _startupAdapterApplied = true;
+      if (preferred != null) {
+        _selectedInterface = preferred;
+        _senderConfig = _senderConfig.copyWith(interface: preferred);
+        _receiverConfig = _receiverConfig.copyWith(interface: preferred);
+      }
     }
     notifyListeners();
   }
 
   void selectInterface(NetworkInterfaceInfo iface) {
+    _startupAdapterApplied = true;
     _selectedInterface = iface;
     _senderConfig = _senderConfig.copyWith(interface: iface);
     _receiverConfig = _receiverConfig.copyWith(interface: iface);
@@ -744,6 +761,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
     _snifferService.clearEvents();
     _igmpEvents = [];
     _watchdog.reset();
+    _querierStatus = _watchdog.currentStatus;
     _syncDiagnosticDismissal();
     notifyListeners();
   }
@@ -808,6 +826,111 @@ class IgmpTesterViewModel extends ChangeNotifier {
       startingIp: '239.255.0.1',
       basePort: 5004,
     );
+  }
+
+  /// Populates realistic in-memory Tx/Rx multicast streams and IGMP query
+  /// monitor events, then activates the interactive spotlight walkthrough.
+  /// Never writes demo data to [SharedDeviceDatabase].
+  void startDemoWalkthrough() {
+    if (isAnyRunning) return;
+    _isDemoMode = true;
+    loadDemo();
+
+    final now = DateTime.now();
+    final ifaceName = _selectedInterface?.name ?? 'eth0';
+    final generalQuery = IgmpQueryEvent(
+      timestamp: now.subtract(const Duration(seconds: 2)),
+      querierIp: '192.168.10.1',
+      destinationIp: '224.0.0.1',
+      typeHex: '0x11',
+      typeName: 'General Query',
+      groupAddress: '0.0.0.0',
+      maxRespTimeSeconds: 10.0,
+      version: 'IGMPv3',
+      protocolVersion: IgmpProtocolVersion.igmpv3,
+      qrv: 2,
+      qqicSeconds: 125,
+      interfaceName: ifaceName,
+      rawSummary: 'IGMPv3 General Query (QRV=2, QQIC=125s)',
+    );
+    final groupQuery = IgmpQueryEvent(
+      timestamp: now.subtract(const Duration(seconds: 5)),
+      querierIp: '192.168.10.1',
+      destinationIp: '239.255.0.1',
+      typeHex: '0x11',
+      typeName: 'Group-Specific Query',
+      groupAddress: '239.255.0.1',
+      maxRespTimeSeconds: 1.0,
+      version: 'IGMPv3',
+      protocolVersion: IgmpProtocolVersion.igmpv3,
+      qrv: 2,
+      qqicSeconds: 125,
+      interfaceName: ifaceName,
+      rawSummary: 'IGMPv3 Group-Specific Query for 239.255.0.1',
+    );
+    final v2Report = IgmpQueryEvent(
+      timestamp: now.subtract(const Duration(seconds: 8)),
+      querierIp: '192.168.10.42',
+      destinationIp: '239.255.0.2',
+      typeHex: '0x16',
+      typeName: 'IGMPv2 Membership Report',
+      groupAddress: '239.255.0.2',
+      maxRespTimeSeconds: 0.0,
+      version: 'IGMPv2',
+      protocolVersion: IgmpProtocolVersion.igmpv2,
+      interfaceName: ifaceName,
+      rawSummary: 'IGMPv2 Membership Report for 239.255.0.2',
+    );
+    final v2Leave = IgmpQueryEvent(
+      timestamp: now.subtract(const Duration(seconds: 12)),
+      querierIp: '192.168.10.42',
+      destinationIp: '224.0.0.2',
+      typeHex: '0x17',
+      typeName: 'IGMPv2 Leave Group',
+      groupAddress: '239.255.0.3',
+      maxRespTimeSeconds: 0.0,
+      version: 'IGMPv2',
+      protocolVersion: IgmpProtocolVersion.igmpv2,
+      interfaceName: ifaceName,
+      rawSummary: 'IGMPv2 Leave Group 239.255.0.3',
+    );
+
+    _igmpEvents = [generalQuery, groupQuery, v2Report, v2Leave];
+    _watchdog.recordQuery(generalQuery);
+    _querierStatus = _watchdog.currentStatus;
+    _syncDiagnosticDismissal();
+    notifyListeners();
+  }
+
+  /// Clears all Tx/Rx streams, telemetry counters, gaps, IGMP events, and
+  /// resets the querier watchdog back to idle.
+  void clearAllStreams() {
+    _senderConfig = _senderConfig.copyWith(streams: const []);
+    _receiverConfig = _receiverConfig.copyWith(streams: const []);
+    _gaps = [];
+    _igmpEvents = [];
+    _unsubscribedStreams = [];
+    _rxThroughputHistory.clear();
+    _senderStats = const SenderStats();
+    _receiverStats = const ReceiverStats();
+    _streamSenderStats = {};
+    _streamReceiverStats = {};
+    _lastLeaveLatency = null;
+    _dismissedDiagnosticWarning = null;
+
+    _receiverService.clearGaps();
+    _receiverService.clearUnsubscribedStreams();
+    _receiverService.clearLeaveLatencyResults();
+    _snifferService.clearEvents();
+    _watchdog.reset();
+    _querierStatus = _watchdog.currentStatus;
+    notifyListeners();
+  }
+
+  /// Exits demo mode and clears all in-memory demo streams and IGMP events.
+  void endDemoWalkthrough() {
+    _isDemoMode = false;
+    clearAllStreams();
   }
 
   Future<void> stopAll() async {
