@@ -197,21 +197,21 @@ class IgmpQueryLogTable extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
-              SizedBox(width: 96, child: Text('Timestamp', style: _headerStyle, overflow: TextOverflow.ellipsis)),
+              SizedBox(width: 96, child: Text('Timestamp', style: AppTheme.tableHeaderStyle, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: 8),
-              Expanded(flex: 2, child: Text('Querier / Sender IP', style: _headerStyle, overflow: TextOverflow.ellipsis)),
+              Expanded(flex: 2, child: Text('Querier / Sender IP', style: AppTheme.tableHeaderStyle, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: 8),
-              Expanded(flex: 2, child: Text('Destination IP', style: _headerStyle, overflow: TextOverflow.ellipsis)),
+              Expanded(flex: 2, child: Text('Destination IP', style: AppTheme.tableHeaderStyle, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: 8),
-              Expanded(flex: 3, child: Text('IGMP Message Type', style: _headerStyle, overflow: TextOverflow.ellipsis)),
+              Expanded(flex: 3, child: Text('IGMP Message Type', style: AppTheme.tableHeaderStyle, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: 8),
-              Expanded(flex: 3, child: Text('Group Address', style: _headerStyle, overflow: TextOverflow.ellipsis)),
+              Expanded(flex: 3, child: Text('Group Address', style: AppTheme.tableHeaderStyle, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: 8),
-              SizedBox(width: 82, child: Text('Max Resp', style: _headerStyle, overflow: TextOverflow.ellipsis)),
+              SizedBox(width: 82, child: Text('Max Resp', style: AppTheme.tableHeaderStyle, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: 8),
-              SizedBox(width: 82, child: Text('Version', style: _headerStyle, overflow: TextOverflow.ellipsis)),
+              SizedBox(width: 82, child: Text('Version', style: AppTheme.tableHeaderStyle, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: 8),
-              Expanded(flex: 3, child: Text('QQIC / QRV', style: _headerStyle, overflow: TextOverflow.ellipsis)),
+              Expanded(flex: 3, child: Text('QQIC / QRV', style: AppTheme.tableHeaderStyle, overflow: TextOverflow.ellipsis)),
             ],
           ),
         ),
@@ -258,12 +258,6 @@ class IgmpQueryLogTable extends StatelessWidget {
     );
   }
 }
-
-TextStyle get _headerStyle => TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.bold,
-      color: AppTheme.textSecondary,
-    );
 
 class _IgmpVersionPill extends StatelessWidget {
   final IgmpProtocolVersion version;

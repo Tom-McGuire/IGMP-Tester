@@ -44,6 +44,12 @@ class AppTheme {
   static Color get textMuted =>
       isDark ? const Color(0xFF6E6E6E) : const Color(0xFF6B7280);
 
+  static TextStyle get tableHeaderStyle => TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.bold,
+        color: textSecondary,
+      );
+
   // --- Semantic & Action Tokens ---
   static Color get accent =>
       isDark ? const Color(0xFF007ACC) : const Color(0xFF0284C7);

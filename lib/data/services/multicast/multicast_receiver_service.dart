@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../../../domain/models/dscp_preset.dart';
 import '../../../domain/models/multicast_config.dart';
 import '../../../domain/models/multicast_gap_event.dart';
@@ -42,6 +45,7 @@ class _ReceiverStreamContext {
   int? lastPacketHintDscp;
   DscpPreset? senderDscpPreset;
   DscpTransitStatus dscpTransitStatus = DscpTransitStatus.unverified;
+  bool dscpVerifiedByOsTos = false;
   final List<MulticastGapEvent> gaps = [];
   int totalGapsCount = 0;
   int maxGapPackets = 0;
@@ -65,6 +69,7 @@ class _DrainingLeaveContext {
   final MulticastReceiverStreamConfig config;
   final _PooledSocket pooledSocket;
   final DateTime leaveIssuedAt;
+  final bool hadPriorTraffic;
   final Completer<LeaveLatencyResult> completer;
   final Duration silenceTimeout;
   final void Function(String streamId) onSilenceTimeout;
@@ -79,6 +84,7 @@ class _DrainingLeaveContext {
     required this.config,
     required this.pooledSocket,
     required this.leaveIssuedAt,
+    required this.hadPriorTraffic,
     required this.completer,
     required this.silenceTimeout,
     required this.onSilenceTimeout,
@@ -147,9 +153,14 @@ class _UnsubscribedStreamContext {
 
 class MulticastReceiverService {
   final DateTime Function() _now;
+  final int _maxUnsubscribedStreams;
 
-  MulticastReceiverService({DateTime Function()? clock})
-      : _now = clock ?? DateTime.now;
+  MulticastReceiverService({
+    DateTime Function()? clock,
+    int maxUnsubscribedStreams = defaultMaxUnsubscribedStreams,
+  })  : _now = clock ?? DateTime.now,
+        _maxUnsubscribedStreams =
+            maxUnsubscribedStreams < 1 ? 1 : maxUnsubscribedStreams;
 
   final Map<int, List<_PooledSocket>> _socketPoolByPort = {};
   final Map<String, _ReceiverStreamContext> _streams = {}; // streamId -> context
@@ -166,8 +177,10 @@ class MulticastReceiverService {
 
   static const int maxMembershipsPerSocket = 16;
   static const int maxRetainedGaps = 5000;
+  static const int defaultMaxUnsubscribedStreams = 500;
   static const Duration defaultMaxDrainDuration = Duration(milliseconds: 3000);
   static const Duration defaultSilenceTimeout = Duration(milliseconds: 500);
+  static const Duration defaultPriorTrafficFreshness = Duration(seconds: 5);
 
   final _statsController = StreamController<ReceiverStats>.broadcast();
   Stream<ReceiverStats> get statsStream => _statsController.stream;
@@ -215,6 +228,7 @@ class MulticastReceiverService {
     _PooledSocket? pooled;
 
     for (final p in pool) {
+      if (p.socket == null) continue;
       if (groupForMembership == null ||
           p.joinedGroups.contains(groupForMembership) ||
           p.joinedGroups.length < maxMembershipsPerSocket) {
@@ -502,6 +516,19 @@ class MulticastReceiverService {
     final existing = _unsubscribedContexts[key];
 
     if (existing == null) {
+      while (_unsubscribedContexts.length >= _maxUnsubscribedStreams) {
+        String? oldestKey;
+        DateTime? oldestLastSeen;
+        for (final entry in _unsubscribedContexts.entries) {
+          if (oldestLastSeen == null ||
+              entry.value.lastSeen.isBefore(oldestLastSeen)) {
+            oldestLastSeen = entry.value.lastSeen;
+            oldestKey = entry.key;
+          }
+        }
+        if (oldestKey == null) break;
+        _unsubscribedContexts.remove(oldestKey);
+      }
       final initialInfo = UnsubscribedStreamInfo(
         groupAddress: packet.destinationGroup,
         port: packet.destinationPort,
@@ -642,6 +669,7 @@ class MulticastReceiverService {
     }
     if (receivedTosByte != null) {
       final rxDscp = DscpPreset.extractDscpFromTos(receivedTosByte);
+      ctx.dscpVerifiedByOsTos = true;
       ctx.lastReceivedTosByte = receivedTosByte;
       ctx.lastReceivedDscp = rxDscp;
       final expectedPreset = ctx.config.expectedDscp ?? ctx.senderDscpPreset;
@@ -649,6 +677,24 @@ class MulticastReceiverService {
         expectedDscp: expectedPreset?.dscpValue,
         observedDscp: rxDscp,
       );
+    } else {
+      ctx.dscpVerifiedByOsTos = false;
+      ctx.lastReceivedTosByte = null;
+      final expectedDscp = ctx.config.expectedDscp;
+      if (expectedDscp != null &&
+          hintDscp != null &&
+          hintDscp != expectedDscp.dscpValue) {
+        final inBandStatus = DscpPreset.evaluateTransitStatus(
+          expectedDscp: expectedDscp.dscpValue,
+          observedDscp: hintDscp,
+        );
+        ctx.dscpTransitStatus = inBandStatus;
+        ctx.lastReceivedDscp =
+            inBandStatus == DscpTransitStatus.unverified ? null : hintDscp;
+      } else {
+        ctx.lastReceivedDscp = null;
+        ctx.dscpTransitStatus = DscpTransitStatus.unverified;
+      }
     }
 
     ctx.bytesSinceSnapshot += datagram.data.length;
@@ -740,13 +786,16 @@ class MulticastReceiverService {
     final targetGroup = InternetAddress(ctx.config.groupAddress);
     final pooled = ctx.pooledSocket;
 
-    if (ctx.config.isSsm && ctx.config.hasSourceFilter) {
+    if (ctx.ssmOsFilterApplied &&
+        ctx.config.isSsm &&
+        ctx.config.hasSourceFilter) {
       final sourceIp = ctx.config.normalizedSourceIp;
       final ssmKey = '${ctx.config.groupAddress}|$sourceIp';
       final ssmStillUsed = _streams.values.any(
         (s) =>
             s.pooledSocket == pooled &&
             s.isJoined &&
+            s.ssmOsFilterApplied &&
             s.config.isSsm &&
             s.config.groupAddress == ctx.config.groupAddress &&
             s.config.normalizedSourceIp == sourceIp,
@@ -770,6 +819,7 @@ class MulticastReceiverService {
       (s) =>
           s.pooledSocket == pooled &&
           s.isJoined &&
+          !s.ssmOsFilterApplied &&
           s.config.groupAddress == ctx.config.groupAddress,
     );
     if (!groupStillUsed && pooled.joinedGroups.remove(ctx.config.groupAddress)) {
@@ -843,6 +893,10 @@ class MulticastReceiverService {
     }
 
     final leaveIssuedAt = _now();
+    final hadPriorTraffic = ctx.packetsReceived > 0 &&
+        ctx.lastPacketTime != null &&
+        leaveIssuedAt.difference(ctx.lastPacketTime!) <=
+            defaultPriorTrafficFreshness;
     _dropMulticastMembership(ctx);
 
     final completer = Completer<LeaveLatencyResult>();
@@ -850,6 +904,7 @@ class MulticastReceiverService {
       config: ctx.config,
       pooledSocket: ctx.pooledSocket,
       leaveIssuedAt: leaveIssuedAt,
+      hadPriorTraffic: hadPriorTraffic,
       completer: completer,
       silenceTimeout: silenceTimeout,
       onSilenceTimeout: (id) => _completeDrain(id),
@@ -913,7 +968,9 @@ class MulticastReceiverService {
     final status = aborted
         ? FastLeaveStatus.aborted
         : (drainCtx.lastPacketReceivedAt == null
-            ? FastLeaveStatus.fastLeaveActive
+            ? (drainCtx.hadPriorTraffic
+                ? FastLeaveStatus.fastLeaveActive
+                : FastLeaveStatus.inconclusive)
             : FastLeaveStatus.classifyLatency(
                 drainCtx.lastPacketReceivedAt!
                     .difference(drainCtx.leaveIssuedAt)
@@ -994,6 +1051,25 @@ class MulticastReceiverService {
     });
   }
 
+  static int _dscpAggregationPriority(_ReceiverStreamContext ctx) {
+    if (ctx.dscpTransitStatus.isAlert) {
+      return ctx.dscpVerifiedByOsTos ? 5 : 4;
+    }
+    if (ctx.dscpTransitStatus == DscpTransitStatus.preserved) {
+      return 3;
+    }
+    if (ctx.dscpVerifiedByOsTos) {
+      return 2;
+    }
+    if (ctx.config.expectedDscp != null) {
+      return 1;
+    }
+    if (ctx.lastPacketHintDscp != null) {
+      return 0;
+    }
+    return -1;
+  }
+
   void _recalculateStats() {
     final now = _now();
     int totalRx = 0;
@@ -1035,7 +1111,11 @@ class MulticastReceiverService {
       final sAvgGapMs = ctx.totalGapsCount > 0 ? (ctx.sumGapDurationMs / ctx.totalGapsCount) : 0.0;
       final duration = now.difference(ctx.startTime);
 
-      final sStats = ctx.stats.copyWith(
+      final sStats = ReceiverStats(
+        streamId: ctx.config.id,
+        streamName: ctx.config.name,
+        groupAddress: ctx.config.groupAddress,
+        port: ctx.config.port,
         packetsReceived: ctx.packetsReceived,
         expectedPackets: expected,
         packetsLost: ctx.packetsLost,
@@ -1066,6 +1146,7 @@ class MulticastReceiverService {
         packetHintDscp: ctx.lastPacketHintDscp,
         senderDscpPreset: ctx.senderDscpPreset,
         dscpTransitStatus: ctx.dscpTransitStatus,
+        dscpVerifiedByOsTos: ctx.dscpVerifiedByOsTos,
       );
       ctx.stats = sStats;
       updatedStreamStats[entry.key] = sStats;
@@ -1142,42 +1223,24 @@ class MulticastReceiverService {
         .cast<String?>()
         .firstWhere((n) => n != null, orElse: () => null);
 
-    DscpTransitStatus aggDscpStatus = DscpTransitStatus.unverified;
+    _ReceiverStreamContext? aggDscpStream;
+    int bestDscpPriority = -1;
     for (final c in _streams.values) {
-      if (c.dscpTransitStatus.isAlert) {
-        aggDscpStatus = c.dscpTransitStatus;
-        break;
-      }
-      if (c.dscpTransitStatus == DscpTransitStatus.preserved) {
-        aggDscpStatus = DscpTransitStatus.preserved;
+      final priority = _dscpAggregationPriority(c);
+      if (priority > bestDscpPriority) {
+        bestDscpPriority = priority;
+        aggDscpStream = c;
       }
     }
 
-    final aggExpectedDscp = _streams.values
-        .map((c) => c.config.expectedDscp)
-        .whereType<DscpPreset>()
-        .cast<DscpPreset?>()
-        .firstWhere((d) => d != null, orElse: () => null);
-    final aggReceivedDscp = _streams.values
-        .map((c) => c.lastReceivedDscp)
-        .whereType<int>()
-        .cast<int?>()
-        .firstWhere((d) => d != null, orElse: () => null);
-    final aggReceivedTosByte = _streams.values
-        .map((c) => c.lastReceivedTosByte)
-        .whereType<int>()
-        .cast<int?>()
-        .firstWhere((t) => t != null, orElse: () => null);
-    final aggHintDscp = _streams.values
-        .map((c) => c.lastPacketHintDscp)
-        .whereType<int>()
-        .cast<int?>()
-        .firstWhere((d) => d != null, orElse: () => null);
-    final aggSenderDscpPreset = _streams.values
-        .map((c) => c.senderDscpPreset)
-        .whereType<DscpPreset>()
-        .cast<DscpPreset?>()
-        .firstWhere((d) => d != null, orElse: () => null);
+    final aggDscpStatus =
+        aggDscpStream?.dscpTransitStatus ?? DscpTransitStatus.unverified;
+    final aggDscpVerifiedByOsTos = aggDscpStream?.dscpVerifiedByOsTos ?? false;
+    final aggExpectedDscp = aggDscpStream?.config.expectedDscp;
+    final aggReceivedDscp = aggDscpStream?.lastReceivedDscp;
+    final aggReceivedTosByte = aggDscpStream?.lastReceivedTosByte;
+    final aggHintDscp = aggDscpStream?.lastPacketHintDscp;
+    final aggSenderDscpPreset = aggDscpStream?.senderDscpPreset;
 
     _aggregateStats = ReceiverStats(
       packetsReceived: totalRx,
@@ -1208,6 +1271,7 @@ class MulticastReceiverService {
       packetHintDscp: aggHintDscp,
       senderDscpPreset: aggSenderDscpPreset,
       dscpTransitStatus: aggDscpStatus,
+      dscpVerifiedByOsTos: aggDscpVerifiedByOsTos,
     );
     _statsController.add(_aggregateStats);
   }
@@ -1256,17 +1320,49 @@ class MulticastReceiverService {
   }
 
   // Testing hooks
+  @visibleForTesting
   void addStreamForTesting(
     MulticastReceiverStreamConfig streamConfig, {
     bool passiveListenOnly = false,
     bool ssmOsFilterApplied = false,
     String? ssmDiagnosticNote,
+    RawDatagramSocket? socket,
   }) {
     final now = _now();
     final shouldJoin = streamConfig.joinGroup && !passiveListenOnly;
+    final pool = _socketPoolByPort.putIfAbsent(streamConfig.port, () => []);
+    _PooledSocket? pooled;
+    for (final p in pool) {
+      if (socket != null && !identical(p.socket, socket)) {
+        continue;
+      }
+      if (!shouldJoin ||
+          p.joinedGroups.contains(streamConfig.groupAddress) ||
+          p.joinedGroups.length < maxMembershipsPerSocket) {
+        pooled = p;
+        break;
+      }
+    }
+    if (pooled == null) {
+      pooled = _PooledSocket(socket: socket, port: streamConfig.port);
+      pool.add(pooled);
+    }
+
+    if (shouldJoin) {
+      if (streamConfig.isSsm &&
+          streamConfig.hasSourceFilter &&
+          ssmOsFilterApplied) {
+        final ssmKey =
+            '${streamConfig.groupAddress}|${streamConfig.normalizedSourceIp}';
+        pooled.joinedSsmKeys.add(ssmKey);
+      } else {
+        pooled.joinedGroups.add(streamConfig.groupAddress);
+      }
+    }
+
     _streams[streamConfig.id] = _ReceiverStreamContext(
       config: streamConfig,
-      pooledSocket: _PooledSocket(socket: null, port: streamConfig.port),
+      pooledSocket: pooled,
       isJoined: shouldJoin,
       ssmOsFilterApplied: ssmOsFilterApplied,
       ssmDiagnosticNote: ssmDiagnosticNote,
@@ -1288,6 +1384,21 @@ class MulticastReceiverService {
     );
   }
 
+  @visibleForTesting
+  Set<String> joinedGroupsForTesting(int port) {
+    final pool = _socketPoolByPort[port];
+    if (pool == null) return const {};
+    return pool.expand((p) => p.joinedGroups).toSet();
+  }
+
+  @visibleForTesting
+  Set<String> joinedSsmKeysForTesting(int port) {
+    final pool = _socketPoolByPort[port];
+    if (pool == null) return const {};
+    return pool.expand((p) => p.joinedSsmKeys).toSet();
+  }
+
+  @visibleForTesting
   void processDatagramForTesting(
     Datagram datagram,
     int port, {
@@ -1302,6 +1413,7 @@ class MulticastReceiverService {
     );
   }
 
+  @visibleForTesting
   void recalculateStatsForTesting() {
     _recalculateStats();
   }

@@ -1,11 +1,9 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:material_ui/material_ui.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../../domain/models/multicast_gap_event.dart';
 import '../../../theme/app_theme.dart';
+import '../../../widgets/csv_export_helper.dart';
 import '../../dashboard/view_models/igmp_tester_view_model.dart';
 
 class GapAnalysisTable extends StatefulWidget {
@@ -23,29 +21,6 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _exportCsv(BuildContext context, IgmpTesterViewModel vm) async {
-    final defaultFileName = 'igmp_multicast_gaps_${DateTime.now().millisecondsSinceEpoch}.csv';
-    final csvContent = vm.generateGapsCsvContent();
-
-    final uri = await FilePicker.saveFile(
-      dialogTitle: 'Save Multicast Gap Analysis CSV',
-      fileName: defaultFileName,
-      bytes: Uint8List.fromList(utf8.encode(csvContent)),
-    );
-
-    if (uri != null && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'Gap report saved successfully.',
-            style: TextStyle(color: Colors.white),
-          ),
-          backgroundColor: AppTheme.success,
-        ),
-      );
-    }
   }
 
   @override
@@ -151,7 +126,11 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
                     label: const Text('Export CSV', style: TextStyle(fontSize: 12)),
                     onPressed: (gaps.isEmpty && vm.lastLeaveLatency == null)
                         ? null
-                        : () => _exportCsv(context, vm),
+                        : () => exportGapsCsvWithFeedback(
+                              context,
+                              vm,
+                              filePrefix: 'igmp_multicast_gaps',
+                            ),
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
@@ -177,14 +156,14 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
-              SizedBox(width: 45, child: Text('#', style: _headerStyle)),
-              SizedBox(width: 115, child: Text('Time Detected', style: _headerStyle)),
-              Expanded(flex: 3, child: Text('Stream / Group Address', style: _headerStyle)),
-              Expanded(flex: 3, child: Text('Missing Sequence Range', style: _headerStyle)),
-              Expanded(flex: 2, child: Text('Lost Count', style: _headerStyle)),
-              Expanded(flex: 2, child: Text('Gap Duration (ms)', style: _headerStyle)),
-              Expanded(flex: 3, child: Text('Last Good Packet', style: _headerStyle)),
-              Expanded(flex: 3, child: Text('Resumed Packet', style: _headerStyle)),
+              SizedBox(width: 45, child: Text('#', style: AppTheme.tableHeaderStyle)),
+              SizedBox(width: 115, child: Text('Time Detected', style: AppTheme.tableHeaderStyle)),
+              Expanded(flex: 3, child: Text('Stream / Group Address', style: AppTheme.tableHeaderStyle)),
+              Expanded(flex: 3, child: Text('Missing Sequence Range', style: AppTheme.tableHeaderStyle)),
+              Expanded(flex: 2, child: Text('Lost Count', style: AppTheme.tableHeaderStyle)),
+              Expanded(flex: 2, child: Text('Gap Duration (ms)', style: AppTheme.tableHeaderStyle)),
+              Expanded(flex: 3, child: Text('Last Good Packet', style: AppTheme.tableHeaderStyle)),
+              Expanded(flex: 3, child: Text('Resumed Packet', style: AppTheme.tableHeaderStyle)),
             ],
           ),
         ),
@@ -238,12 +217,6 @@ class _GapAnalysisTableState extends State<GapAnalysisTable> {
     );
   }
 }
-
-TextStyle get _headerStyle => TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.bold,
-      color: AppTheme.textSecondary,
-    );
 
 class _SummaryBadge extends StatelessWidget {
   final String label;

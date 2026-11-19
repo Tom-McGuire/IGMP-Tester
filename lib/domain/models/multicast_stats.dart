@@ -8,6 +8,7 @@ enum FastLeaveStatus {
   fastLeaveActive('Fast-Leave Active'),
   delayedPrune('Delayed Prune'),
   noFastLeave('No Fast-Leave (Query Timeout)'),
+  inconclusive('No Traffic Before Leave'),
   aborted('Measurement Aborted');
 
   final String label;
@@ -200,6 +201,7 @@ class ReceiverStats {
   final int? packetHintDscp;
   final DscpPreset? senderDscpPreset;
   final DscpTransitStatus dscpTransitStatus;
+  final bool dscpVerifiedByOsTos;
 
   const ReceiverStats({
     this.streamId = '',
@@ -238,6 +240,7 @@ class ReceiverStats {
     this.packetHintDscp,
     this.senderDscpPreset,
     this.dscpTransitStatus = DscpTransitStatus.unverified,
+    this.dscpVerifiedByOsTos = false,
   });
 
   ReceiverStats copyWith({
@@ -278,6 +281,7 @@ class ReceiverStats {
     int? packetHintDscp,
     DscpPreset? senderDscpPreset,
     DscpTransitStatus? dscpTransitStatus,
+    bool? dscpVerifiedByOsTos,
   }) {
     return ReceiverStats(
       streamId: streamId ?? this.streamId,
@@ -318,6 +322,7 @@ class ReceiverStats {
       packetHintDscp: packetHintDscp ?? this.packetHintDscp,
       senderDscpPreset: senderDscpPreset ?? this.senderDscpPreset,
       dscpTransitStatus: dscpTransitStatus ?? this.dscpTransitStatus,
+      dscpVerifiedByOsTos: dscpVerifiedByOsTos ?? this.dscpVerifiedByOsTos,
     );
   }
 }

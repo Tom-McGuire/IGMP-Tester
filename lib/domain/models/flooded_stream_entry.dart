@@ -30,6 +30,30 @@ class FloodedStreamEntry {
   /// Canonical endpoint label `<groupIp>:<destinationPort>`.
   String get endpoint => '$groupIp:$destinationPort';
 
+  /// Validates that [ip] is a strict 4-octet IPv4 multicast address (`224.0.0.0/4`).
+  static bool isMulticastIpv4(String ip) {
+    final parts = ip.trim().split('.');
+    if (parts.length != 4) return false;
+    final octets = <int>[];
+    for (final part in parts) {
+      if (!RegExp(r'^\d{1,3}$').hasMatch(part)) return false;
+      final value = int.tryParse(part);
+      if (value == null || value < 0 || value > 255) return false;
+      octets.add(value);
+    }
+    return octets[0] >= 224 && octets[0] <= 239;
+  }
+
+  /// Whether [groupIp] is a valid IPv4 multicast address (not `'Unknown Group'`).
+  bool get hasValidMulticastGroup => isMulticastIpv4(groupIp);
+
+  /// Returns [groupIp] when valid, otherwise a protocol-appropriate default multicast group.
+  String get suggestedAdoptGroupIp {
+    if (hasValidMulticastGroup) return groupIp;
+    if (detectedProtocol == 'Dante / RTP') return '239.69.1.1';
+    return '239.255.0.1';
+  }
+
   /// Unique aggregation key `(sourceIp, groupIp, destinationPort)`.
   String get streamKey => '$sourceIp|$groupIp|$destinationPort';
 

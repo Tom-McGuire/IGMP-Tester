@@ -1,12 +1,10 @@
-import 'dart:convert';
-import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../../data/services/igmp/igmp_querier_watchdog.dart';
 import '../../../../domain/models/igmp_query_event.dart';
 import '../../../../domain/models/network_interface_info.dart';
 import '../../../theme/app_theme.dart';
+import '../../../widgets/csv_export_helper.dart';
 import '../view_models/igmp_tester_view_model.dart';
 import 'dialogs/device_library_dialog.dart';
 
@@ -267,43 +265,18 @@ class TopControlBar extends StatelessWidget {
                       PopupMenuButton<String>(
                         tooltip: 'Export',
                         enabled: canExport,
+                        constraints: const BoxConstraints(minWidth: 240, maxWidth: 380),
                         onSelected: (val) async {
                           if (val == 'csv') {
-                            try {
-                              final defaultFileName =
-                                  'multicast_gaps_${DateTime.now().millisecondsSinceEpoch}.csv';
-                              final csvContent = vm.generateGapsCsvContent();
-                              final uri = await FilePicker.saveFile(
-                                dialogTitle: 'Export Gaps CSV',
-                                fileName: defaultFileName,
-                                bytes: Uint8List.fromList(utf8.encode(csvContent)),
-                              );
-                              if (uri != null && context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text('Gap report saved successfully.'),
-                                    backgroundColor: AppTheme.success,
-                                  ),
-                                );
-                              }
-                            } catch (e) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Export failed: $e'),
-                                    backgroundColor: AppTheme.error,
-                                  ),
-                                );
-                              }
-                            }
+                            await exportGapsCsvWithFeedback(
+                              context,
+                              vm,
+                              dialogTitle: 'Export Gaps CSV',
+                            );
                           } else if (val == 'clipboard') {
-                            final csv = vm.generateGapsCsvContent();
-                            await Clipboard.setData(ClipboardData(text: csv));
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Gaps CSV copied to clipboard')),
-                              );
-                            }
+                            await copyGapsCsvToClipboard(context, vm);
+                          } else if (val == 'igmp_json') {
+                            await copyIgmpLogJsonToClipboard(context, vm);
                           }
                         },
                         itemBuilder: (_) => const [
@@ -313,7 +286,13 @@ class TopControlBar extends StatelessWidget {
                               children: [
                                 Icon(Icons.table_chart, size: 16),
                                 SizedBox(width: 8),
-                                Text('Export Gaps as CSV...', style: TextStyle(fontSize: 12)),
+                                Flexible(
+                                  child: Text(
+                                    'Export Gaps as CSV...',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -323,7 +302,29 @@ class TopControlBar extends StatelessWidget {
                               children: [
                                 Icon(Icons.copy, size: 16),
                                 SizedBox(width: 8),
-                                Text('Copy Gaps CSV to Clipboard', style: TextStyle(fontSize: 12)),
+                                Flexible(
+                                  child: Text(
+                                    'Copy Gaps CSV to Clipboard',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'igmp_json',
+                            child: Row(
+                              children: [
+                                Icon(Icons.data_object, size: 16),
+                                SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    'Copy IGMP Log as JSON',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
                               ],
                             ),
                           ),

@@ -116,72 +116,68 @@ void main() {
       }
     });
 
-    test(
-      'returns dark when suite_settings table is missing, and reads stored modes',
-      () async {
-        final dir = Directory.systemTemp.createTempSync('igmp_theme_db_');
-        try {
-          final dbPath = p.join(dir.path, 'shared_devices.db');
+    test('returns dark when suite_settings table is missing, and reads stored modes', () async {
+      final dir = Directory.systemTemp.createTempSync('igmp_theme_db_');
+      try {
+        final dbPath = p.join(dir.path, 'shared_devices.db');
 
-          // DB without suite_settings table -> 'dark'
-          final db = sqlite3.open(dbPath);
-          db.execute('CREATE TABLE unrelated (id INTEGER PRIMARY KEY);');
-          db.close();
-          expect(
-            await SuiteThemeSyncService.getThemeMode(dbPath: dbPath),
-            'dark',
-          );
+        // DB without suite_settings table -> 'dark'
+        final db = sqlite3.open(dbPath);
+        db.execute('CREATE TABLE unrelated (id INTEGER PRIMARY KEY);');
+        db.close();
+        expect(
+          await SuiteThemeSyncService.getThemeMode(dbPath: dbPath),
+          'dark',
+        );
 
-          // Add suite_settings without theme_mode row -> 'dark'
-          final dbWithTable = sqlite3.open(dbPath);
-          dbWithTable.execute(
-            'CREATE TABLE suite_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);',
-          );
-          expect(
-            await SuiteThemeSyncService.getThemeMode(dbPath: dbPath),
-            'dark',
-          );
+        // Add suite_settings without theme_mode row -> 'dark'
+        final dbWithTable = sqlite3.open(dbPath);
+        dbWithTable.execute(
+          'CREATE TABLE suite_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);',
+        );
+        expect(
+          await SuiteThemeSyncService.getThemeMode(dbPath: dbPath),
+          'dark',
+        );
 
-          // 'light' -> 'light'
-          dbWithTable.execute(
-            "INSERT OR REPLACE INTO suite_settings (key, value, updated_at) VALUES ('theme_mode', 'light', '2026-11-19T00:00:00Z');",
-          );
-          expect(
-            await SuiteThemeSyncService.getThemeMode(dbPath: dbPath),
-            'light',
-          );
+        // 'light' -> 'light'
+        dbWithTable.execute(
+          "INSERT OR REPLACE INTO suite_settings (key, value, updated_at) VALUES ('theme_mode', 'light', '2026-11-19T00:00:00Z');",
+        );
+        expect(
+          await SuiteThemeSyncService.getThemeMode(dbPath: dbPath),
+          'light',
+        );
 
-          // 'dark' -> 'dark'
-          dbWithTable.execute(
-            "INSERT OR REPLACE INTO suite_settings (key, value, updated_at) VALUES ('theme_mode', 'dark', '2026-11-19T00:01:00Z');",
-          );
-          expect(
-            await SuiteThemeSyncService.getThemeMode(dbPath: dbPath),
-            'dark',
-          );
+        // 'dark' -> 'dark'
+        dbWithTable.execute(
+          "INSERT OR REPLACE INTO suite_settings (key, value, updated_at) VALUES ('theme_mode', 'dark', '2026-11-19T00:01:00Z');",
+        );
+        expect(
+          await SuiteThemeSyncService.getThemeMode(dbPath: dbPath),
+          'dark',
+        );
 
-          // Unknown value -> 'dark'
-          dbWithTable.execute(
-            "INSERT OR REPLACE INTO suite_settings (key, value, updated_at) VALUES ('theme_mode', 'sepia', '2026-11-19T00:02:00Z');",
-          );
-          dbWithTable.close();
-          expect(
-            await SuiteThemeSyncService.getThemeMode(dbPath: dbPath),
-            'dark',
-          );
-        } finally {
-          dir.deleteSync(recursive: true);
-        }
-      },
-    );
+        // Unknown value -> 'dark'
+        dbWithTable.execute(
+          "INSERT OR REPLACE INTO suite_settings (key, value, updated_at) VALUES ('theme_mode', 'sepia', '2026-11-19T00:02:00Z');",
+        );
+        dbWithTable.close();
+        expect(
+          await SuiteThemeSyncService.getThemeMode(dbPath: dbPath),
+          'dark',
+        );
+      } finally {
+        dir.deleteSync(recursive: true);
+      }
+    });
   });
 
   group('SuiteThemeSyncService.watchExternalChanges', () {
     test('returns empty stream for :memory: and missing directories', () async {
       expect(
-        await SuiteThemeSyncService.watchExternalChanges(
-          dbPath: ':memory:',
-        ).isEmpty,
+        await SuiteThemeSyncService.watchExternalChanges(dbPath: ':memory:')
+            .isEmpty,
         isTrue,
       );
       expect(
@@ -203,13 +199,12 @@ void main() {
       final unrelatedPath = p.join(dir.path, 'unrelated.txt');
 
       final completer = Completer<void>();
-      final sub = SuiteThemeSyncService.watchExternalChanges(
-        dbPath: dbPath,
-      ).listen((_) {
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-      });
+      final sub = SuiteThemeSyncService.watchExternalChanges(dbPath: dbPath)
+          .listen((_) {
+            if (!completer.isCompleted) {
+              completer.complete();
+            }
+          });
 
       try {
         // Unrelated file should not trigger before target file changes.
@@ -221,6 +216,118 @@ void main() {
         File(walPath).writeAsStringSync('wal-update');
         await completer.future.timeout(const Duration(seconds: 3));
         expect(completer.isCompleted, isTrue);
+      } finally {
+        await sub.cancel();
+        dir.deleteSync(recursive: true);
+      }
+    });
+
+    test('debounces rapid bursts across .db, .db-wal, and .db-shm into a single emission', () async {
+      final dir = Directory.systemTemp.createTempSync('igmp_theme_debounce_');
+      final dbPath = p.join(dir.path, 'shared_devices.db');
+      final walPath = '$dbPath-wal';
+      final shmPath = '$dbPath-shm';
+
+      var emissionCount = 0;
+      var nextEmission = Completer<void>();
+      final sub =
+          SuiteThemeSyncService.watchExternalChanges(
+            dbPath: dbPath,
+            debounce: const Duration(milliseconds: 150),
+          ).listen((_) {
+            emissionCount++;
+            if (!nextEmission.isCompleted) {
+              nextEmission.complete();
+            }
+          });
+
+      try {
+        // Rapid burst across main DB and WAL/SHM sidecars within one window.
+        File(dbPath).writeAsStringSync('db-1');
+        File(walPath).writeAsStringSync('wal-1');
+        File(shmPath).writeAsStringSync('shm-1');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        File(walPath).writeAsStringSync('wal-2');
+        File(dbPath).writeAsStringSync('db-2');
+
+        await nextEmission.future.timeout(const Duration(seconds: 3));
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        expect(emissionCount, 1);
+
+        // A separated follow-up write should emit a second notification.
+        nextEmission = Completer<void>();
+        File(shmPath).writeAsStringSync('shm-2');
+        await nextEmission.future.timeout(const Duration(seconds: 3));
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        expect(emissionCount, 2);
+      } finally {
+        await sub.cancel();
+        dir.deleteSync(recursive: true);
+      }
+    });
+
+    test(
+      'cancelling subscription cancels pending debounce timer cleanly',
+      () async {
+        final dir = Directory.systemTemp.createTempSync('igmp_theme_cancel_');
+        final dbPath = p.join(dir.path, 'shared_devices.db');
+        final walPath = '$dbPath-wal';
+        final shmPath = '$dbPath-shm';
+
+        var emissionCount = 0;
+        final sub =
+            SuiteThemeSyncService.watchExternalChanges(
+              dbPath: dbPath,
+              debounce: const Duration(milliseconds: 200),
+            ).listen((_) {
+              emissionCount++;
+            });
+
+        try {
+          // Trigger burst so a debounce Timer is pending, then cancel early.
+          File(dbPath).writeAsStringSync('db-1');
+          File(walPath).writeAsStringSync('wal-1');
+          File(shmPath).writeAsStringSync('shm-1');
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+
+          await sub.cancel();
+
+          // Wait past the debounce window to verify the cancelled timer never fires.
+          await Future<void>.delayed(const Duration(milliseconds: 280));
+          expect(emissionCount, 0);
+        } finally {
+          await sub.cancel();
+          dir.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test('emits immediately when debounce is Duration.zero', () async {
+      final dir = Directory.systemTemp.createTempSync('igmp_theme_nodebounce_');
+      final dbPath = p.join(dir.path, 'shared_devices.db');
+      final walPath = '$dbPath-wal';
+      final shmPath = '$dbPath-shm';
+
+      var emissionCount = 0;
+      final atLeastThree = Completer<void>();
+      final sub =
+          SuiteThemeSyncService.watchExternalChanges(
+            dbPath: dbPath,
+            debounce: Duration.zero,
+          ).listen((_) {
+            emissionCount++;
+            if (emissionCount >= 3 && !atLeastThree.isCompleted) {
+              atLeastThree.complete();
+            }
+          });
+
+      try {
+        File(dbPath).writeAsStringSync('db-1');
+        File(walPath).writeAsStringSync('wal-1');
+        File(shmPath).writeAsStringSync('shm-1');
+
+        await atLeastThree.future.timeout(const Duration(seconds: 3));
+        expect(emissionCount, greaterThanOrEqualTo(3));
       } finally {
         await sub.cancel();
         dir.deleteSync(recursive: true);

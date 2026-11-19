@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -313,6 +315,64 @@ void main() {
       expect(vm.isDemoMode, isFalse);
       expect(find.text('Load Demo'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('TopControlBar Export menu includes Copy IGMP Log as JSON and copies serialized events', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      String? clipboardText;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          final args = call.arguments as Map<dynamic, dynamic>;
+          clipboardText = args['text'] as String?;
+        }
+        return null;
+      });
+      addTearDown(() {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null);
+      });
+
+      final vm = IgmpTesterViewModel(
+        interfaceService: _FakeIfaceService(),
+        snifferService: _FakeSnifferService(),
+      );
+      addTearDown(vm.dispose);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: vm,
+          child: MaterialApp(
+            theme: AppTheme.darkTheme(),
+            home: const Scaffold(body: TopControlBar()),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Load demo events so Export is enabled and igmpEvents is non-empty
+      await tester.tap(find.text('Load Demo'));
+      await tester.pump();
+
+      await tester.ensureVisible(find.text('Export'));
+      await tester.tap(find.text('Export'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Export Gaps as CSV...'), findsOneWidget);
+      expect(find.text('Copy Gaps CSV to Clipboard'), findsOneWidget);
+      expect(find.text('Copy IGMP Log as JSON'), findsOneWidget);
+
+      await tester.tap(find.text('Copy IGMP Log as JSON'));
+      await tester.pumpAndSettle();
+
+      expect(clipboardText, isNotNull);
+      final decoded = jsonDecode(clipboardText!) as List<dynamic>;
+      expect(decoded.length, equals(4));
+      expect((decoded.first as Map<String, dynamic>)['querierIp'], equals('192.168.10.1'));
+      expect(find.text('Copied 4 IGMP log event(s) as JSON'), findsOneWidget);
     });
   });
 }

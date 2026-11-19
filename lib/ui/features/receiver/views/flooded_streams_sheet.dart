@@ -2,14 +2,15 @@ import 'dart:io';
 import 'package:material_ui/material_ui.dart';
 import '../../../../data/services/multicast/flooding_scanner_service.dart';
 import '../../../../domain/models/flooded_stream_entry.dart';
+import '../../../../domain/models/multicast_config.dart';
 import '../../../theme/app_theme.dart';
 
 /// Modal sheet / dialog panel displaying passive unjoined multicast flooding
 /// scan controls, snooping health verdict banners, and discovered streams with
 /// one-click `Adopt & Track` actions.
 ///
-/// Designed to work inside [showDialog], [showModalBottomSheet], or embedded
-/// directly inside a panel/test scaffold.
+/// Designed to work inside [showDialog] or embedded directly inside a
+/// panel/test scaffold.
 class FloodedStreamsSheet extends StatefulWidget {
   /// Optional external scanner instance; when omitted an internal
   /// [FloodingScannerService] is created and disposed automatically.
@@ -67,41 +68,6 @@ class FloodedStreamsSheet extends StatefulWidget {
         insetPadding: const EdgeInsets.all(24),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 960, maxHeight: 640),
-          child: FloodedStreamsSheet(
-            scannerService: scannerService,
-            onAdoptStream: onAdoptStream,
-            onClose: () => Navigator.of(ctx).pop(),
-            scanPorts: scanPorts,
-            scanDuration: scanDuration,
-            interfaceAddress: interfaceAddress,
-            alreadyJoinedGroups: alreadyJoinedGroups,
-            autoStart: autoStart,
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Convenience helper to open [FloodedStreamsSheet] as a modal bottom sheet.
-  static Future<void> showBottomSheetModal(
-    BuildContext context, {
-    FloodingScannerService? scannerService,
-    ValueChanged<FloodedStreamEntry>? onAdoptStream,
-    List<int> scanPorts = FloodingScannerService.defaultPorts,
-    Duration scanDuration = const Duration(seconds: 10),
-    InternetAddress? interfaceAddress,
-    Set<String> alreadyJoinedGroups = const {},
-    bool autoStart = true,
-  }) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(ctx).height * 0.85,
-          ),
           child: FloodedStreamsSheet(
             scannerService: scannerService,
             onAdoptStream: onAdoptStream,
@@ -759,16 +725,34 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
       ),
       child: Row(
         children: [
-          Expanded(flex: 3, child: Text('Group IP', style: _tableHeaderStyle)),
-          SizedBox(width: 64, child: Text('Port', style: _tableHeaderStyle)),
           Expanded(
             flex: 3,
-            child: Text('Detected Protocol', style: _tableHeaderStyle),
+            child: Text('Group IP', style: AppTheme.tableHeaderStyle),
           ),
-          Expanded(flex: 3, child: Text('Source IP', style: _tableHeaderStyle)),
-          Expanded(flex: 2, child: Text('Packets', style: _tableHeaderStyle)),
-          Expanded(flex: 2, child: Text('Rate', style: _tableHeaderStyle)),
-          SizedBox(width: 128, child: Text('Action', style: _tableHeaderStyle)),
+          SizedBox(
+            width: 64,
+            child: Text('Port', style: AppTheme.tableHeaderStyle),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text('Detected Protocol', style: AppTheme.tableHeaderStyle),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text('Source IP', style: AppTheme.tableHeaderStyle),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text('Packets', style: AppTheme.tableHeaderStyle),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text('Rate', style: AppTheme.tableHeaderStyle),
+          ),
+          SizedBox(
+            width: 128,
+            child: Text('Action', style: AppTheme.tableHeaderStyle),
+          ),
         ],
       ),
     );
@@ -935,6 +919,22 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
     );
   }
 
+  Future<void> _handleAdoptPressed(FloodedStreamEntry entry) async {
+    final callback = widget.onAdoptStream;
+    if (callback == null) return;
+    if (entry.hasValidMulticastGroup) {
+      callback(entry);
+      return;
+    }
+
+    final validIp = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _AdoptUnknownGroupDialog(entry: entry),
+    );
+    if (!mounted || validIp == null) return;
+    callback(entry.copyWith(groupIp: validIp));
+  }
+
   Widget _buildAdoptButton(FloodedStreamEntry entry) {
     final bool isDark = AppTheme.isDark;
     return ElevatedButton.icon(
@@ -954,14 +954,129 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
         style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
       ),
       onPressed: widget.onAdoptStream != null
-          ? () => widget.onAdoptStream!(entry)
+          ? () => _handleAdoptPressed(entry)
           : null,
     );
   }
 }
 
-TextStyle get _tableHeaderStyle => TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.bold,
-      color: AppTheme.textSecondary,
+class _AdoptUnknownGroupDialog extends StatefulWidget {
+  final FloodedStreamEntry entry;
+
+  const _AdoptUnknownGroupDialog({required this.entry});
+
+  @override
+  State<_AdoptUnknownGroupDialog> createState() =>
+      _AdoptUnknownGroupDialogState();
+}
+
+class _AdoptUnknownGroupDialogState extends State<_AdoptUnknownGroupDialog> {
+  late final TextEditingController _groupCtrl;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _groupCtrl = TextEditingController(
+      text: widget.entry.suggestedAdoptGroupIp,
     );
+  }
+
+  @override
+  void dispose() {
+    _groupCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final val = _groupCtrl.text.trim();
+    if (!MulticastStreamConfig.isValidMulticastIpv4(val)) {
+      setState(() {
+        _errorText =
+            'Enter a valid IPv4 multicast address (224.0.0.0–239.255.255.255)';
+      });
+      return;
+    }
+    Navigator.of(context).pop(val);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entry = widget.entry;
+    return AlertDialog(
+      backgroundColor: AppTheme.surfaceElevated,
+      title: Row(
+        children: [
+          Icon(Icons.add_task, color: AppTheme.info, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            'Specify Multicast Group IP',
+            style: TextStyle(fontSize: 15, color: AppTheme.textPrimary),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'The destination multicast IP could not be inferred from ${entry.protocolDisplay} packets on UDP port ${entry.destinationPort} (source ${entry.sourceIp}). Enter the multicast group IP to join and track:',
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            if (_errorText != null) ...[
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: AppTheme.error.withValues(alpha: 0.45),
+                  ),
+                ),
+                child: Text(
+                  _errorText!,
+                  style: TextStyle(color: AppTheme.error, fontSize: 12),
+                ),
+              ),
+            ],
+            TextField(
+              controller: _groupCtrl,
+              onChanged: (_) {
+                if (_errorText != null) {
+                  setState(() => _errorText = null);
+                }
+              },
+              onSubmitted: (_) => _submit(),
+              decoration: InputDecoration(
+                labelText: 'Multicast Group IP',
+                hintText: entry.suggestedAdoptGroupIp,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.info,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: _submit,
+          child: const Text(
+            'Adopt Group',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      ],
+    );
+  }
+}

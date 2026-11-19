@@ -6,6 +6,8 @@ import '../../../../domain/models/dscp_preset.dart';
 import '../../../../domain/models/multicast_config.dart';
 import '../../../../domain/models/multicast_stats.dart';
 import '../../../theme/app_theme.dart';
+import '../../../widgets/metric_card.dart';
+import '../../../widgets/protocol_preset_icon.dart';
 import '../../dashboard/view_models/igmp_tester_view_model.dart';
 import 'flooded_streams_sheet.dart';
 
@@ -56,64 +58,9 @@ class ReceiverPanel extends StatelessWidget {
   }
 
   void _showPassivePortDialog(BuildContext context, IgmpTesterViewModel vm) {
-    final ctrl = TextEditingController(text: vm.receiverConfig.passiveListenPort.toString());
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surfaceElevated,
-        title: Row(
-          children: [
-            Icon(Icons.hearing_outlined, color: AppTheme.warning, size: 20),
-            const SizedBox(width: 8),
-            Text(
-              'Configure No-Subscription Server Port',
-              style: TextStyle(fontSize: 15, color: AppTheme.textPrimary),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Bind a UDP socket on this port WITHOUT sending an IGMP Join to test if the network switch floods unsubscribed multicast streams.',
-                style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: ctrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Passive Listener UDP Port',
-                  hintText: '5004',
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.warning,
-              foregroundColor: Colors.black,
-            ),
-            onPressed: () {
-              final p = int.tryParse(ctrl.text.trim());
-              if (p != null && p >= 1 && p <= 65535) {
-                vm.updateReceiverPassivePort(p);
-                Navigator.pop(ctx);
-              }
-            },
-            child: const Text('Save Port', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
+      builder: (ctx) => _PassivePortDialog(vm: vm),
     );
   }
 
@@ -333,7 +280,7 @@ class ReceiverPanel extends StatelessWidget {
           // Aggregate Reception Telemetry
           Row(
             children: [
-              _MetricCard(
+              MetricCard(
                 title: 'Subscribed Groups',
                 value: '${stats.activeStreamsCount} / ${streams.length}',
                 unit: 'groups',
@@ -341,7 +288,7 @@ class ReceiverPanel extends StatelessWidget {
                 color: AppTheme.info,
               ),
               const SizedBox(width: 12),
-              _MetricCard(
+              MetricCard(
                 title: 'Packets Received',
                 value: '${stats.packetsReceived} / ${stats.expectedPackets}',
                 unit: 'pkts',
@@ -349,7 +296,7 @@ class ReceiverPanel extends StatelessWidget {
                 color: AppTheme.success,
               ),
               const SizedBox(width: 12),
-              _MetricCard(
+              MetricCard(
                 title: 'Aggregate Loss Rate',
                 value: '${stats.lossRatePercent.toStringAsFixed(2)}%',
                 unit: '${stats.packetsLost} dropped',
@@ -359,7 +306,7 @@ class ReceiverPanel extends StatelessWidget {
                     : AppTheme.success,
               ),
               const SizedBox(width: 12),
-              _MetricCard(
+              MetricCard(
                 title: 'Total Gaps Detected',
                 value: stats.totalGaps.toString(),
                 unit: 'drop events',
@@ -373,7 +320,7 @@ class ReceiverPanel extends StatelessWidget {
           // Row 2: Inbound Rate & Network Timing
           Row(
             children: [
-              _MetricCard(
+              MetricCard(
                 title: 'Aggregate Arrival Rate',
                 value: stats.currentPps.toStringAsFixed(0),
                 unit: 'pps',
@@ -381,7 +328,7 @@ class ReceiverPanel extends StatelessWidget {
                 color: AppTheme.info,
               ),
               const SizedBox(width: 12),
-              _MetricCard(
+              MetricCard(
                 title: 'Total Inbound Bitrate',
                 value: stats.currentBitrateMbps.toStringAsFixed(2),
                 unit: 'Mbps',
@@ -389,7 +336,7 @@ class ReceiverPanel extends StatelessWidget {
                 color: bandwidthColor,
               ),
               const SizedBox(width: 12),
-              _MetricCard(
+              MetricCard(
                 title: 'Average Jitter',
                 value: stats.jitterMs.toStringAsFixed(3),
                 unit: 'ms',
@@ -397,7 +344,7 @@ class ReceiverPanel extends StatelessWidget {
                 color: jitterColor,
               ),
               const SizedBox(width: 12),
-              _MetricCard(
+              MetricCard(
                 title: 'Unsubscribed / Flooded',
                 value: '${unsubscribed.length} (${stats.unsubscribedPacketsReceived})',
                 unit: 'grps (pkts)',
@@ -523,15 +470,15 @@ class ReceiverPanel extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      SizedBox(width: 40, child: Text('Status', style: _headerStyle)),
-                      Expanded(flex: 3, child: Text('Stream / Group Name', style: _headerStyle)),
-                      Expanded(flex: 4, child: Text('Multicast Address & Port', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Received', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Loss %', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Gaps', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Bitrate', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Jitter', style: _headerStyle)),
-                      SizedBox(width: 132, child: Text('Actions', style: _headerStyle)),
+                      SizedBox(width: 40, child: Text('Status', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 3, child: Text('Stream / Group Name', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 4, child: Text('Multicast Address & Port', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Received', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Loss %', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Gaps', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Bitrate', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Jitter', style: AppTheme.tableHeaderStyle)),
+                      SizedBox(width: 132, child: Text('Actions', style: AppTheme.tableHeaderStyle)),
                     ],
                   ),
                 ),
@@ -616,17 +563,34 @@ class ReceiverPanel extends StatelessWidget {
                                     ),
                                   if (rStats != null &&
                                       rStats.dscpTransitStatus != DscpTransitStatus.unverified)
-                                    Text(
-                                      rStats.dscpTransitStatus == DscpTransitStatus.preserved
-                                          ? 'QoS Preserved (${DscpPreset.formatDscpBadge(rStats.receivedDscp!)})'
-                                          : 'QoS Alert (${rStats.receivedDscp != null ? DscpPreset.formatDscpBadge(rStats.receivedDscp!) : "Stripped"})',
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: rStats.dscpTransitStatus == DscpTransitStatus.preserved
-                                            ? fastLeaveLabelColor
-                                            : (isDark ? const Color(0xFFFCA5A5) : AppTheme.error),
-                                      ),
+                                    Builder(
+                                      builder: (_) {
+                                        final observedDscp =
+                                            rStats.receivedDscp ?? rStats.packetHintDscp;
+                                        final badge = observedDscp != null
+                                            ? DscpPreset.formatDscpBadge(observedDscp)
+                                            : null;
+                                        final tagSuffix = rStats.dscpVerifiedByOsTos
+                                            ? ''
+                                            : ' · Sender Tag';
+                                        final labelText = rStats.dscpTransitStatus ==
+                                                DscpTransitStatus.preserved
+                                            ? 'QoS Preserved (${badge ?? rStats.expectedDscp?.shortLabel ?? "OK"})$tagSuffix'
+                                            : 'QoS Alert (${badge ?? "Stripped"})$tagSuffix';
+                                        return Text(
+                                          labelText,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: rStats.dscpTransitStatus ==
+                                                    DscpTransitStatus.preserved
+                                                ? fastLeaveLabelColor
+                                                : (isDark
+                                                    ? const Color(0xFFFCA5A5)
+                                                    : AppTheme.error),
+                                          ),
+                                        );
+                                      },
                                     ),
                                 ],
                               ),
@@ -689,9 +653,10 @@ class ReceiverPanel extends StatelessWidget {
                                   ),
                                   if (stream.isSsm)
                                     Tooltip(
-                                      message: stream.hasSourceFilter
-                                          ? 'Source-Specific Multicast filter: ${stream.normalizedSourceIp}${rStats?.ssmDiagnosticNote != null ? "\n${rStats!.ssmDiagnosticNote}" : ""}'
-                                          : 'Source-Specific Multicast (S, G)',
+                                      message: rStats?.ssmDiagnosticNote ??
+                                          (stream.hasSourceFilter
+                                              ? 'Source-Specific Multicast filter: ${stream.normalizedSourceIp}'
+                                              : 'Source-Specific Multicast (S, G)'),
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                         decoration: BoxDecoration(
@@ -1194,12 +1159,12 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
                   color: AppTheme.surfaceHigh,
                   child: Row(
                     children: [
-                      Expanded(flex: 3, child: Text('Flooded Group & Port', style: _headerStyle)),
-                      Expanded(flex: 3, child: Text('Sender Source IP', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Session ID', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Flooded Packets', style: _headerStyle)),
-                      Expanded(flex: 3, child: Text('Flood Bitrate / Rate', style: _headerStyle)),
-                      SizedBox(width: 110, child: Text('Action', style: _headerStyle)),
+                      Expanded(flex: 3, child: Text('Flooded Group & Port', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 3, child: Text('Sender Source IP', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Session ID', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Flooded Packets', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 3, child: Text('Flood Bitrate / Rate', style: AppTheme.tableHeaderStyle)),
+                      SizedBox(width: 110, child: Text('Action', style: AppTheme.tableHeaderStyle)),
                     ],
                   ),
                 ),
@@ -1301,97 +1266,6 @@ class _IgmpSnoopingVerificationCard extends StatelessWidget {
   }
 }
 
-TextStyle get _headerStyle => TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.bold,
-      color: AppTheme.textSecondary,
-    );
-
-class _MetricCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final String unit;
-  final IconData icon;
-  final Color color;
-
-  const _MetricCard({
-    required this.title,
-    required this.value,
-    required this.unit,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: AppTheme.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 14, color: color),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    title,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    unit,
-                    style: TextStyle(fontSize: 10, color: AppTheme.textMuted),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-IconData _getProtocolPresetIcon(ProtocolPreset preset) {
-  switch (preset.category) {
-    case 'Lighting':
-      return Icons.lightbulb_outline;
-    case 'Audio':
-      return Icons.volume_up_outlined;
-    case 'Video':
-      return Icons.videocam_outlined;
-    default:
-      return Icons.tune;
-  }
-}
-
 class _FastLeaveLatencyPill extends StatelessWidget {
   final LeaveLatencyResult result;
   final VoidCallback? onClear;
@@ -1427,6 +1301,11 @@ class _FastLeaveLatencyPill extends StatelessWidget {
         textColor = isDark ? AppTheme.error : const Color(0xFFB91C1C);
         icon = Icons.warning_amber_rounded;
         text = '${result.leaveLatencyMs} ms — No Fast-Leave · ${result.trailingPacketsReceived} trailing';
+      case FastLeaveStatus.inconclusive:
+        color = AppTheme.textSecondary;
+        textColor = AppTheme.textSecondary;
+        icon = Icons.info_outline;
+        text = 'No Traffic Before Leave (Inconclusive)';
       case FastLeaveStatus.aborted:
         color = AppTheme.textSecondary;
         textColor = AppTheme.textSecondary;
@@ -1482,9 +1361,11 @@ class _ReceiverQosPill extends StatelessWidget {
     final bool isDark = AppTheme.isDark;
     final expected = stats.expectedDscp ?? stats.senderDscpPreset;
     final expectedLabel = expected?.shortLabel ?? 'QoS';
-    final rxLabel = stats.receivedDscp != null
-        ? DscpPreset.formatDscpBadge(stats.receivedDscp!)
+    final observedDscp = stats.receivedDscp ?? stats.packetHintDscp;
+    final rxLabel = observedDscp != null
+        ? DscpPreset.formatDscpBadge(observedDscp)
         : 'Unverified';
+    final sourceTag = stats.dscpVerifiedByOsTos ? '' : ' · Sender Tag';
 
     final Color color;
     final Color textColor;
@@ -1496,22 +1377,26 @@ class _ReceiverQosPill extends StatelessWidget {
         color = AppTheme.success;
         textColor = isDark ? AppTheme.success : const Color(0xFF047857);
         icon = Icons.verified_outlined;
-        label = 'QoS Preserved · $rxLabel';
+        label = 'QoS Preserved · $rxLabel$sourceTag';
       case DscpTransitStatus.remarkedToZero:
         color = AppTheme.error;
         textColor = isDark ? AppTheme.error : const Color(0xFFB91C1C);
         icon = Icons.gpp_bad_outlined;
-        label = 'QoS Stripped · Sent $expectedLabel -> Received $rxLabel';
+        label = 'QoS Stripped · Sent $expectedLabel -> Received $rxLabel$sourceTag';
       case DscpTransitStatus.remarkedOrStripped:
         color = AppTheme.warning;
         textColor = isDark ? AppTheme.warning : const Color(0xFFB45309);
         icon = Icons.warning_amber_rounded;
-        label = 'QoS Remarked · Sent $expectedLabel -> Received $rxLabel';
+        label = 'QoS Remarked · Sent $expectedLabel -> Received $rxLabel$sourceTag';
       case DscpTransitStatus.unverified:
         color = isDark ? const Color(0xFF60A5FA) : AppTheme.info;
         textColor = color;
         icon = Icons.label_important_outline;
-        label = 'QoS Expect $expectedLabel (OS TOS Unverified)';
+        final tagLabel =
+            stats.senderDscpPreset?.shortLabel ?? stats.expectedDscp?.shortLabel;
+        label = tagLabel != null
+            ? 'Sender Tag: $tagLabel · OS TOS Unverified'
+            : 'QoS Expect $expectedLabel (OS TOS Unverified)';
     }
 
     return Container(
@@ -1536,6 +1421,123 @@ class _ReceiverQosPill extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PassivePortDialog extends StatefulWidget {
+  final IgmpTesterViewModel vm;
+
+  const _PassivePortDialog({required this.vm});
+
+  @override
+  State<_PassivePortDialog> createState() => _PassivePortDialogState();
+}
+
+class _PassivePortDialogState extends State<_PassivePortDialog> {
+  late final TextEditingController _portCtrl;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _portCtrl = TextEditingController(
+      text: widget.vm.receiverConfig.passiveListenPort.toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _portCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final p = int.tryParse(_portCtrl.text.trim());
+    if (p == null || p < 1 || p > 65535) {
+      setState(() {
+        _errorText = 'Enter a valid UDP port (1–65535)';
+      });
+      return;
+    }
+    widget.vm.updateReceiverPassivePort(p);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppTheme.surfaceElevated,
+      title: Row(
+        children: [
+          Icon(Icons.hearing_outlined, color: AppTheme.warning, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            'Configure No-Subscription Server Port',
+            style: TextStyle(fontSize: 15, color: AppTheme.textPrimary),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Bind a UDP socket on this port WITHOUT sending an IGMP Join to test if the network switch floods unsubscribed multicast streams.',
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            if (_errorText != null) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: AppTheme.error.withValues(alpha: 0.45)),
+                ),
+                child: Text(
+                  _errorText!,
+                  style: TextStyle(color: AppTheme.error, fontSize: 12),
+                ),
+              ),
+            ],
+            TextField(
+              controller: _portCtrl,
+              keyboardType: TextInputType.number,
+              onChanged: (_) {
+                if (_errorText != null) {
+                  setState(() => _errorText = null);
+                }
+              },
+              onSubmitted: (_) => _submit(),
+              decoration: const InputDecoration(
+                labelText: 'Passive Listener UDP Port',
+                hintText: '5004',
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.warning,
+            foregroundColor: Colors.black,
+          ),
+          onPressed: _submit,
+          child: const Text(
+            'Save Port',
+            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1728,7 +1730,7 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
                     value: p,
                     child: Row(
                       children: [
-                        Icon(_getProtocolPresetIcon(p), size: 14, color: accentText),
+                        Icon(iconForProtocolPreset(p), size: 14, color: accentText),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -1755,7 +1757,7 @@ class _AddReceiverGroupDialogState extends State<_AddReceiverGroupDialog> {
                   child: Row(
                     children: [
                       Icon(
-                        _getProtocolPresetIcon(_selectedPreset),
+                        iconForProtocolPreset(_selectedPreset),
                         size: 16,
                         color: accentText,
                       ),
@@ -2055,7 +2057,7 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
                     value: p,
                     child: Row(
                       children: [
-                        Icon(_getProtocolPresetIcon(p), size: 14, color: accentText),
+                        Icon(iconForProtocolPreset(p), size: 14, color: accentText),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -2082,7 +2084,7 @@ class _BatchReceiverGroupsDialogState extends State<_BatchReceiverGroupsDialog> 
                   child: Row(
                     children: [
                       Icon(
-                        _getProtocolPresetIcon(_selectedPreset),
+                        iconForProtocolPreset(_selectedPreset),
                         size: 16,
                         color: accentText,
                       ),

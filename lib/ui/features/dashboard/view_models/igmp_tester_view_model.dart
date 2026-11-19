@@ -155,15 +155,6 @@ class IgmpTesterViewModel extends ChangeNotifier {
     return null;
   }
 
-  /// Non-blocking informational note when OS `IP_ADD_SOURCE_MEMBERSHIP` fell back
-  /// to `(*, G)` join with software source filtering on an active stream.
-  String? get ssmFallbackNote {
-    for (final rx in _streamReceiverStats.values) {
-      if (rx.ssmDiagnosticNote != null) return rx.ssmDiagnosticNote;
-    }
-    return _receiverStats.ssmDiagnosticNote;
-  }
-
   /// QoS policy mismatch or OS `IP_TOS` warning when DSCP tags are stripped,
   /// remarked, or rejected by the local socket layer.
   String? get dscpPolicyWarning {
@@ -182,10 +173,11 @@ class IgmpTesterViewModel extends ChangeNotifier {
         final observedLabel = rx.receivedDscp != null
             ? DscpPreset.formatDscpBadge(rx.receivedDscp!)
             : 'BE (0)';
+        final sourceTag = rx.dscpVerifiedByOsTos ? '' : ' (In-Band Sender Tag)';
         if (rx.dscpTransitStatus == DscpTransitStatus.remarkedToZero) {
-          return 'QoS Policy Alert (${rx.streamName}): Sent $expectedLabel -> Received $observedLabel (QoS Stripped by Network)';
+          return 'QoS Policy Alert (${rx.streamName}): Sent $expectedLabel -> Received $observedLabel (QoS Stripped by Network)$sourceTag';
         }
-        return 'QoS Policy Alert (${rx.streamName}): Sent $expectedLabel -> Received $observedLabel (QoS Remarked in Transit)';
+        return 'QoS Policy Alert (${rx.streamName}): Sent $expectedLabel -> Received $observedLabel (QoS Remarked in Transit)$sourceTag';
       }
     }
     if (_receiverStats.dscpTransitStatus.isAlert) {
@@ -195,7 +187,9 @@ class IgmpTesterViewModel extends ChangeNotifier {
       final observedLabel = _receiverStats.receivedDscp != null
           ? DscpPreset.formatDscpBadge(_receiverStats.receivedDscp!)
           : 'BE (0)';
-      return 'QoS Policy Alert: Sent $expectedLabel -> Received $observedLabel';
+      final sourceTag =
+          _receiverStats.dscpVerifiedByOsTos ? '' : ' (In-Band Sender Tag)';
+      return 'QoS Policy Alert: Sent $expectedLabel -> Received $observedLabel$sourceTag';
     }
     return null;
   }
@@ -654,6 +648,12 @@ class IgmpTesterViewModel extends ChangeNotifier {
     bool autoJoinAndStart = true,
   }) async {
     _clearError();
+    if (!MulticastStreamConfig.isValidMulticastIpv4(entry.groupIp)) {
+      _errorMessage =
+          'Cannot adopt stream: "${entry.groupIp}" is not a valid IPv4 multicast group (224.0.0.0–239.255.255.255).';
+      notifyListeners();
+      return;
+    }
     MulticastReceiverStreamConfig? targetStream;
     for (final existing in _receiverConfig.streams) {
       if (existing.groupAddress == entry.groupIp &&
@@ -743,7 +743,9 @@ class IgmpTesterViewModel extends ChangeNotifier {
         return;
       }
       final started = await _snifferService.start(iface: _selectedInterface);
-      if (!started) {
+      if (started) {
+        _watchdog.start();
+      } else {
         _errorMessage = _snifferService.lastError ??
             'Failed to start TShark IGMP sniffer on interface ${_selectedInterface?.name}.';
       }
@@ -782,15 +784,10 @@ class IgmpTesterViewModel extends ChangeNotifier {
     );
   }
 
-  Future<String> exportGapsCsv(String filePath) async {
-    final csv = generateGapsCsvContent();
-    await _csvService.saveCsvToFile(filePath, csv);
-    return filePath;
-  }
-
   Future<void> startAll() async {
     _clearError();
     try {
+      _watchdog.start();
       final rawIface = _interfaceService.findRawInterface(_selectedInterface);
       if (!isSenderRunning && _senderConfig.streams.any((s) => s.enabled)) {
         await _senderService.startAll(
@@ -896,6 +893,7 @@ class IgmpTesterViewModel extends ChangeNotifier {
     );
 
     _igmpEvents = [generalQuery, groupQuery, v2Report, v2Leave];
+    _watchdog.start();
     _watchdog.recordQuery(generalQuery);
     _querierStatus = _watchdog.currentStatus;
     _syncDiagnosticDismissal();
@@ -938,7 +936,9 @@ class IgmpTesterViewModel extends ChangeNotifier {
     await _receiverService.stop();
     await _snifferService.stop();
     await _floodingScannerService.stopScan();
-    _watchdog.stop();
+    _watchdog.reset();
+    _querierStatus = _watchdog.currentStatus;
+    _syncDiagnosticDismissal();
     notifyListeners();
   }
 

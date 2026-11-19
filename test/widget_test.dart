@@ -7,8 +7,10 @@ import 'package:igmp_tester/data/services/igmp/igmp_querier_watchdog.dart';
 import 'package:igmp_tester/data/services/igmp/igmp_query_sniffer.dart';
 import 'package:igmp_tester/data/services/multicast/flooding_scanner_service.dart';
 import 'package:igmp_tester/data/services/network/network_interface_service.dart';
+import 'package:igmp_tester/domain/models/dscp_preset.dart';
 import 'package:igmp_tester/domain/models/igmp_query_event.dart';
 import 'package:igmp_tester/domain/models/multicast_config.dart';
+import 'package:igmp_tester/domain/models/multicast_stats.dart';
 import 'package:igmp_tester/domain/models/network_interface_info.dart';
 import 'package:igmp_tester/main.dart';
 import 'package:igmp_tester/ui/features/dashboard/view_models/igmp_tester_view_model.dart';
@@ -50,6 +52,23 @@ class _TestFloodingScannerService extends FloodingScannerService {
   }) async {
     markScanCompletedForTesting(ports: ports, duration: duration);
   }
+}
+
+class _StubReceiverTelemetryVm extends IgmpTesterViewModel {
+  LeaveLatencyResult? stubLeaveLatency;
+  ReceiverStats stubReceiverStats = const ReceiverStats();
+
+  _StubReceiverTelemetryVm()
+      : super(
+          interfaceService: _TestIfaceService(),
+          snifferService: _TestSnifferService(),
+        );
+
+  @override
+  LeaveLatencyResult? get lastLeaveLatency => stubLeaveLatency;
+
+  @override
+  ReceiverStats get receiverStats => stubReceiverStats;
 }
 
 void main() {
@@ -360,6 +379,127 @@ void main() {
       Brightness.light,
     );
     expect(AppTheme.isDark, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Passive port dialog validates invalid ports inline and saves valid port cleanly', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    final vm = IgmpTesterViewModel(
+      interfaceService: _TestIfaceService(),
+      snifferService: _TestSnifferService(),
+    );
+    addTearDown(vm.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: vm,
+        child: MaterialApp(
+          theme: AppTheme.darkTheme(),
+          home: const Scaffold(body: ReceiverPanel()),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(vm.receiverConfig.passiveListenPort, equals(5004));
+    expect(find.text('Port: 5004'), findsOneWidget);
+
+    // Open _PassivePortDialog
+    await tester.tap(find.text('Port: 5004'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Configure No-Subscription Server Port'), findsOneWidget);
+    final portField = find.widgetWithText(TextField, 'Passive Listener UDP Port');
+    expect(portField, findsOneWidget);
+
+    // Reject '0'
+    await tester.enterText(portField, '0');
+    await tester.tap(find.text('Save Port'));
+    await tester.pump();
+
+    expect(find.text('Enter a valid UDP port (1–65535)'), findsOneWidget);
+    expect(find.text('Configure No-Subscription Server Port'), findsOneWidget);
+    expect(vm.receiverConfig.passiveListenPort, equals(5004));
+
+    // Reject '99999'
+    await tester.enterText(portField, '99999');
+    await tester.tap(find.text('Save Port'));
+    await tester.pump();
+
+    expect(find.text('Enter a valid UDP port (1–65535)'), findsOneWidget);
+    expect(find.text('Configure No-Subscription Server Port'), findsOneWidget);
+    expect(vm.receiverConfig.passiveListenPort, equals(5004));
+
+    // Save valid port '5568'
+    await tester.enterText(portField, '5568');
+    await tester.tap(find.text('Save Port'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Configure No-Subscription Server Port'), findsNothing);
+    expect(vm.receiverConfig.passiveListenPort, equals(5568));
+    expect(find.text('Port: 5568'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ReceiverPanel renders inconclusive Fast-Leave pill and in-band Sender Tag QoS pills cleanly', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    final vm = _StubReceiverTelemetryVm()
+      ..stubLeaveLatency = LeaveLatencyResult(
+        groupIp: '239.255.0.1',
+        port: 5004,
+        leaveIssuedAt: DateTime.now(),
+        leaveLatencyMs: 0,
+        status: FastLeaveStatus.inconclusive,
+      )
+      ..stubReceiverStats = const ReceiverStats(
+        senderDscpPreset: DscpPreset.ef,
+        dscpTransitStatus: DscpTransitStatus.unverified,
+        dscpVerifiedByOsTos: false,
+      );
+    addTearDown(vm.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<IgmpTesterViewModel>.value(
+        value: vm,
+        child: MaterialApp(
+          theme: AppTheme.darkTheme(),
+          home: const Scaffold(body: ReceiverPanel()),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('No Traffic Before Leave (Inconclusive)'), findsOneWidget);
+    expect(find.text('Sender Tag: EF (46) · OS TOS Unverified'), findsOneWidget);
+
+    vm.stubReceiverStats = const ReceiverStats(
+      expectedDscp: DscpPreset.ef,
+      receivedDscp: 0,
+      dscpTransitStatus: DscpTransitStatus.remarkedToZero,
+      dscpVerifiedByOsTos: false,
+    );
+    // Trigger rebuild via notifyListeners-equivalent state update
+    await tester.pumpWidget(
+      ChangeNotifierProvider<IgmpTesterViewModel>.value(
+        value: vm,
+        child: MaterialApp(
+          theme: AppTheme.darkTheme(),
+          home: const Scaffold(key: ValueKey('rebuilt'), body: ReceiverPanel()),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.text('QoS Stripped · Sent EF (46) -> Received BE (0) · Sender Tag'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 }

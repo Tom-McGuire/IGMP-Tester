@@ -4,6 +4,7 @@ import 'package:igmp_tester/data/services/igmp/igmp_querier_watchdog.dart';
 import 'package:igmp_tester/domain/models/multicast_config.dart';
 import 'package:provider/provider.dart';
 import '../../../../theme/app_theme.dart';
+import '../../../../widgets/protocol_preset_icon.dart';
 import '../../view_models/igmp_tester_view_model.dart';
 
 class DeviceLibraryDialog extends StatefulWidget {
@@ -41,21 +42,6 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
-  }
-
-  IconData _getCategoryIcon(String category) {
-    switch (category) {
-      case 'Lighting':
-        return Icons.lightbulb_outline;
-      case 'Audio':
-        return Icons.volume_up_outlined;
-      case 'Video':
-        return Icons.videocam_outlined;
-      case 'Timing':
-        return Icons.schedule_outlined;
-      default:
-        return Icons.hub_outlined;
-    }
   }
 
   Color _querierHealthColor(QuerierHealth health) {
@@ -263,7 +249,10 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                                     border: Border.all(color: AppTheme.borderStrong),
                                   ),
                                   child: Icon(
-                                    _getCategoryIcon(profile.category),
+                                    iconForProtocolCategory(
+                                      profile.category,
+                                      defaultIcon: Icons.hub_outlined,
+                                    ),
                                     size: 16,
                                     color: accentHighlight,
                                   ),

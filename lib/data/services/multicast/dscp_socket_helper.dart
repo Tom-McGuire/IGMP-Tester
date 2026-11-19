@@ -8,6 +8,8 @@ library;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../../../domain/models/dscp_preset.dart';
 
 /// Platform-specific `IPPROTO_IP`, `IP_TOS`, and `IP_RECVTOS` socket option IDs.
@@ -210,6 +212,7 @@ class DscpSocketHelper {
   ///
   /// Returns `true` if the option succeeded, or `false` if [socket] is `null`,
   /// [dscp] is out of range, or the OS rejected `setRawOption`.
+  @visibleForTesting
   static bool applySenderDscp(
     RawDatagramSocket? socket,
     int dscp, {
@@ -225,6 +228,7 @@ class DscpSocketHelper {
   }) => applySenderDscpWithResult(socket, preset.dscpValue, ecn: ecn);
 
   /// Applies IPv4 `IP_TOS` for [preset] on [socket].
+  @visibleForTesting
   static bool applySenderPreset(
     RawDatagramSocket? socket,
     DscpPreset preset, {
@@ -275,6 +279,7 @@ class DscpSocketHelper {
 
   /// Reads the active `IP_TOS` byte from [socket], or `null` if [socket] is
   /// `null` or `getRawOption` fails.
+  @visibleForTesting
   static int? readSocketTos(RawDatagramSocket? socket) {
     if (socket == null) return null;
     final options = currentPlatformOptions;
@@ -301,6 +306,7 @@ class DscpSocketHelper {
 
   /// Reads the active 6-bit DSCP value (`0..63`) from [socket], or `null` if
   /// unavailable.
+  @visibleForTesting
   static int? readSocketDscp(RawDatagramSocket? socket) {
     final tos = readSocketTos(socket);
     return tos == null ? null : DscpPreset.extractDscpFromTos(tos);

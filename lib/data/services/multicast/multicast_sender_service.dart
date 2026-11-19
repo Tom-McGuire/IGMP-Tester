@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import '../../../domain/models/dscp_preset.dart';
 import '../../../domain/models/multicast_config.dart';
 import '../../../domain/models/multicast_packet.dart';
@@ -17,6 +17,7 @@ class _ActiveSenderContext {
   int seq = 0;
   int packetsSent = 0;
   int bytesSent = 0;
+  int lastSendTimestampUs = 0;
   int lastPacketsSnapshot = 0;
   int lastBytesSnapshot = 0;
   DateTime lastSnapshotTime;
@@ -52,6 +53,80 @@ class MulticastSenderService {
   bool get isRunning => _activeStreams.isNotEmpty;
   bool isStreamRunning(String streamId) => _activeStreams.containsKey(streamId);
 
+  /// Builds an IPv4 `IP_MULTICAST_IF` [RawSocketOption] (`IPPROTO_IP = 0`)
+  /// carrying the 4-byte `struct in_addr` for [ipv4], or `null` if [ipv4] is
+  /// not an IPv4 address.
+  @visibleForTesting
+  static RawSocketOption? buildMulticastIfOption(
+    InternetAddress ipv4, {
+    String? operatingSystemOverride,
+  }) {
+    if (ipv4.type != InternetAddressType.IPv4 || ipv4.rawAddress.length != 4) {
+      return null;
+    }
+    final os = (operatingSystemOverride ?? Platform.operatingSystem)
+        .toLowerCase();
+    // IP_MULTICAST_IF: Windows = 9, Linux/macOS/default = 32
+    final optName = os == 'windows' ? 9 : 32;
+    return RawSocketOption(
+      RawSocketOption.levelIPv4,
+      optName,
+      Uint8List.fromList(ipv4.rawAddress),
+    );
+  }
+
+  /// Computes how many packets are due at [elapsedUs] for [pps] given
+  /// [alreadySent], capped at [maxBurstPerTick] to prevent timer-stall bursts.
+  @visibleForTesting
+  static int computePacketsDue({
+    required int elapsedUs,
+    required int pps,
+    required int alreadySent,
+    int maxBurstPerTick = 64,
+  }) {
+    if (elapsedUs < 0 || pps <= 0 || maxBurstPerTick <= 0) {
+      return 0;
+    }
+    final targetPackets = ((elapsedUs * pps) ~/ 1000000).clamp(
+      alreadySent,
+      alreadySent + maxBurstPerTick,
+    );
+    return targetPackets - alreadySent;
+  }
+
+  Future<RawDatagramSocket> _bindSenderSocket(
+    NetworkInterface? rawInterface,
+  ) async {
+    InternetAddress? selectedIpv4;
+    if (rawInterface != null) {
+      for (final addr in rawInterface.addresses) {
+        if (addr.type == InternetAddressType.IPv4 && addr.address != '0.0.0.0') {
+          selectedIpv4 = addr;
+          break;
+        }
+      }
+    }
+
+    if (selectedIpv4 != null) {
+      RawDatagramSocket socket;
+      try {
+        socket = await RawDatagramSocket.bind(selectedIpv4, 0);
+      } on SocketException {
+        socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      }
+
+      final multicastIfOption = buildMulticastIfOption(selectedIpv4);
+      if (multicastIfOption != null) {
+        try {
+          socket.setRawOption(multicastIfOption);
+        } catch (_) {}
+      }
+      return socket;
+    }
+
+    return RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+  }
+
   Future<void> startStream({
     required MulticastStreamConfig streamConfig,
     NetworkInterface? rawInterface,
@@ -64,16 +139,9 @@ class MulticastSenderService {
     final targetGroup = InternetAddress(streamConfig.groupAddress);
     final targetPort = streamConfig.port;
 
-    // Bind sender socket
-    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    final socket = await _bindSenderSocket(rawInterface);
     socket.multicastHops = streamConfig.ttl;
     socket.multicastLoopback = enableLoopback;
-    if (rawInterface != null) {
-      try {
-        // ignore: deprecated_member_use
-        socket.multicastInterface = rawInterface;
-      } catch (_) {}
-    }
 
     final dscpResult = DscpSocketHelper.applySenderPresetWithResult(
       socket,
@@ -124,33 +192,39 @@ class MulticastSenderService {
       ),
     );
 
-    int tickMs = 10;
-    int packetsPerTick = 1;
-
-    if (pps <= 50) {
-      tickMs = (1000 / pps).round().clamp(10, 1000);
-      packetsPerTick = 1;
-    } else {
-      tickMs = 10;
-      packetsPerTick = (pps / 100).ceil();
-    }
-
+    final tickMs = pps >= 20 ? 10 : 25;
     context.sendTimer = Timer.periodic(Duration(milliseconds: tickMs), (_) {
       if (!_activeStreams.containsKey(streamConfig.id)) return;
 
       final nowUs = DateTime.now().microsecondsSinceEpoch;
-      for (int i = 0; i < packetsPerTick; i++) {
-        context.seq++;
+      final elapsedUs = nowUs - context.startTime.microsecondsSinceEpoch;
+      final due = computePacketsDue(
+        elapsedUs: elapsedUs,
+        pps: pps,
+        alreadySent: context.packetsSent,
+      );
+
+      for (int i = 0; i < due; i++) {
+        final sampleUs = DateTime.now().microsecondsSinceEpoch;
+        final packetTimestampUs = sampleUs > context.lastSendTimestampUs
+            ? sampleUs
+            : context.lastSendTimestampUs + 1;
+        context.lastSendTimestampUs = packetTimestampUs;
+
+        final nextSeq = context.seq + 1;
         MulticastPacket.updateSequenceAndTimestamp(
           context.packetBuffer,
-          context.seq,
-          nowUs,
+          nextSeq,
+          packetTimestampUs,
         );
 
         final sent = socket.send(context.packetBuffer, targetGroup, targetPort);
         if (sent > 0) {
+          context.seq = nextSeq;
           context.packetsSent++;
           context.bytesSent += sent;
+        } else {
+          break;
         }
       }
     });

@@ -13,20 +13,6 @@ enum IgmpJoinMode {
   const IgmpJoinMode(this.label);
 
   bool get isSsm => this == IgmpJoinMode.ssm;
-  bool get isAsm => this == IgmpJoinMode.asm;
-}
-
-enum MulticastPreset {
-  orgLocal('239.255.0.1', 5004, 'Admin / Org-Local (239.255.0.1)'),
-  siteLocal('239.192.0.1', 5004, 'Site-Local (239.192.0.1)'),
-  multicastTestGroup('239.1.1.1', 5004, 'IGMP Test Stream (239.1.1.1)'),
-  custom('', 5004, 'Custom Multicast Group');
-
-  final String group;
-  final int port;
-  final String label;
-
-  const MulticastPreset(this.group, this.port, this.label);
 }
 
 /// Pre-configured multicast protocol profiles for common AV, broadcast, and lighting protocols.

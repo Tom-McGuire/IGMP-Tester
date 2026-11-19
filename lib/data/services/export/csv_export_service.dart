@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:csv/csv.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../../../domain/models/dscp_preset.dart';
 import '../../../domain/models/multicast_gap_event.dart';
 import '../../../domain/models/multicast_stats.dart';
@@ -123,6 +124,7 @@ class CsvExportService {
     return null;
   }
 
+  @visibleForTesting
   Future<void> saveCsvToFile(String filePath, String csvContent) async {
     final file = File(filePath);
     await file.writeAsString(csvContent);

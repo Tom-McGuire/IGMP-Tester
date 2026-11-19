@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../../../../domain/models/dscp_preset.dart';
 import '../../../../domain/models/multicast_config.dart';
 import '../../../theme/app_theme.dart';
+import '../../../widgets/metric_card.dart';
+import '../../../widgets/protocol_preset_icon.dart';
 import '../../dashboard/view_models/igmp_tester_view_model.dart';
 
 class SenderPanel extends StatelessWidget {
@@ -138,7 +140,7 @@ class SenderPanel extends StatelessWidget {
           // Aggregate Metrics Section
           Row(
             children: [
-              _MetricCard(
+              MetricCard(
                 title: 'Active Streams',
                 value: '${stats.activeStreamsCount} / ${streams.length}',
                 unit: 'streams',
@@ -146,7 +148,7 @@ class SenderPanel extends StatelessWidget {
                 color: AppTheme.accent,
               ),
               const SizedBox(width: 12),
-              _MetricCard(
+              MetricCard(
                 title: 'Combined Rate',
                 value: stats.currentPps.toStringAsFixed(0),
                 unit: 'pps',
@@ -154,7 +156,7 @@ class SenderPanel extends StatelessWidget {
                 color: AppTheme.info,
               ),
               const SizedBox(width: 12),
-              _MetricCard(
+              MetricCard(
                 title: 'Aggregate Bandwidth',
                 value: stats.currentBitrateMbps.toStringAsFixed(2),
                 unit: 'Mbps',
@@ -162,7 +164,7 @@ class SenderPanel extends StatelessWidget {
                 color: bandwidthColor,
               ),
               const SizedBox(width: 12),
-              _MetricCard(
+              MetricCard(
                 title: 'Total Outbound',
                 value: (stats.bytesSent / (1024 * 1024)).toStringAsFixed(2),
                 unit: 'MB (${stats.packetsSent} pkts)',
@@ -240,15 +242,15 @@ class SenderPanel extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      SizedBox(width: 40, child: Text('Status', style: _headerStyle)),
-                      Expanded(flex: 3, child: Text('Stream Name', style: _headerStyle)),
-                      Expanded(flex: 4, child: Text('Multicast Group & Port', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Rate', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Payload', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('QoS / DSCP', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Bitrate', style: _headerStyle)),
-                      Expanded(flex: 2, child: Text('Sent Pkts', style: _headerStyle)),
-                      SizedBox(width: 132, child: Text('Actions', style: _headerStyle)),
+                      SizedBox(width: 40, child: Text('Status', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 3, child: Text('Stream Name', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 4, child: Text('Multicast Group & Port', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Rate', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Payload', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('QoS / DSCP', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Bitrate', style: AppTheme.tableHeaderStyle)),
+                      Expanded(flex: 2, child: Text('Sent Pkts', style: AppTheme.tableHeaderStyle)),
+                      SizedBox(width: 132, child: Text('Actions', style: AppTheme.tableHeaderStyle)),
                     ],
                   ),
                 ),
@@ -437,97 +439,6 @@ class SenderPanel extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-TextStyle get _headerStyle => TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.bold,
-      color: AppTheme.textSecondary,
-    );
-
-class _MetricCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final String unit;
-  final IconData icon;
-  final Color color;
-
-  const _MetricCard({
-    required this.title,
-    required this.value,
-    required this.unit,
-    required this.icon,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: AppTheme.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 14, color: color),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    title,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    unit,
-                    style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-IconData _getProtocolPresetIcon(ProtocolPreset preset) {
-  switch (preset.category) {
-    case 'Lighting':
-      return Icons.lightbulb_outline;
-    case 'Audio':
-      return Icons.volume_up_outlined;
-    case 'Video':
-      return Icons.videocam_outlined;
-    default:
-      return Icons.tune;
   }
 }
 
@@ -808,7 +719,7 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
                     value: p,
                     child: Row(
                       children: [
-                        Icon(_getProtocolPresetIcon(p), size: 14, color: accentText),
+                        Icon(iconForProtocolPreset(p), size: 14, color: accentText),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -835,7 +746,7 @@ class _AddSenderStreamDialogState extends State<_AddSenderStreamDialog> {
                   child: Row(
                     children: [
                       Icon(
-                        _getProtocolPresetIcon(_selectedPreset),
+                        iconForProtocolPreset(_selectedPreset),
                         size: 16,
                         color: accentText,
                       ),
@@ -1140,7 +1051,7 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
                     value: p,
                     child: Row(
                       children: [
-                        Icon(_getProtocolPresetIcon(p), size: 14, color: accentText),
+                        Icon(iconForProtocolPreset(p), size: 14, color: accentText),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -1169,7 +1080,7 @@ class _BatchSenderStreamsDialogState extends State<_BatchSenderStreamsDialog> {
                     Row(
                       children: [
                         Icon(
-                          _getProtocolPresetIcon(_selectedPreset),
+                          iconForProtocolPreset(_selectedPreset),
                           size: 16,
                           color: accentText,
                         ),

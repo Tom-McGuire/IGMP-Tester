@@ -46,9 +46,6 @@ class MulticastPacket {
     return dscp == null ? null : DscpPreset.tryFromDscpValue(dscp);
   }
 
-  DateTime get sendDateTime =>
-      DateTime.fromMicrosecondsSinceEpoch(sendTimestampUs);
-
   static String sanitizeSessionId(String raw) {
     return raw.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '');
   }

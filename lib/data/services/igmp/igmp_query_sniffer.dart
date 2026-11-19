@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../../../domain/models/igmp_query_event.dart';
 import '../../../domain/models/network_interface_info.dart';
 
@@ -320,9 +321,11 @@ class IgmpQuerySnifferService {
     _querierVersion = IgmpProtocolVersion.unknown;
   }
 
+  @visibleForTesting
   void parseLineForTesting(String line) => _parseLine(line);
 
   /// Parses raw IGMP wire bytes into an [IgmpQueryEvent], recording and emitting it if valid.
+  @visibleForTesting
   IgmpQueryEvent? parseRawPayloadForTesting(
     Uint8List payload, {
     DateTime? timestamp,

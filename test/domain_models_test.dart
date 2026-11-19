@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:igmp_tester/domain/models/dscp_preset.dart';
+import 'package:igmp_tester/domain/models/flooded_stream_entry.dart';
 import 'package:igmp_tester/domain/models/igmp_query_event.dart';
 import 'package:igmp_tester/domain/models/multicast_config.dart';
 import 'package:igmp_tester/domain/models/multicast_stats.dart';
@@ -163,10 +164,13 @@ void main() {
         lossRatePercent: 5.0,
       );
 
+      expect(stats.dscpVerifiedByOsTos, isFalse);
+
       final updated = stats.copyWith(
         packetsReceived: 1000,
         lossRatePercent: 0.0,
         jitterMs: 1.25,
+        dscpVerifiedByOsTos: true,
       );
 
       expect(updated.streamId, equals('r1'));
@@ -174,6 +178,10 @@ void main() {
       expect(updated.packetsReceived, equals(1000));
       expect(updated.lossRatePercent, equals(0.0));
       expect(updated.jitterMs, equals(1.25));
+      expect(updated.dscpVerifiedByOsTos, isTrue);
+
+      final preserved = updated.copyWith(jitterMs: 2.0);
+      expect(preserved.dscpVerifiedByOsTos, isTrue);
     });
   });
 
@@ -218,7 +226,7 @@ void main() {
       expect(tx.dscpPreset, equals(DscpPreset.ef));
       expect(tx.copyWith(dscpPreset: DscpPreset.af41).dscpPreset, equals(DscpPreset.af41));
 
-      expect(IgmpJoinMode.asm.isAsm, isTrue);
+      expect(IgmpJoinMode.asm.isSsm, isFalse);
       expect(IgmpJoinMode.ssm.isSsm, isTrue);
       expect(MulticastReceiverStreamConfig.isSsmGroupIpv4('232.1.2.3'), isTrue);
       expect(MulticastReceiverStreamConfig.isSsmGroupIpv4('239.1.2.3'), isFalse);
@@ -257,8 +265,13 @@ void main() {
       expect(FastLeaveStatus.classifyLatency(500), equals(FastLeaveStatus.delayedPrune));
       expect(FastLeaveStatus.classifyLatency(501), equals(FastLeaveStatus.noFastLeave));
       expect(FastLeaveStatus.fastLeaveActive.isComplete, isTrue);
+      expect(FastLeaveStatus.delayedPrune.isComplete, isTrue);
+      expect(FastLeaveStatus.noFastLeave.isComplete, isTrue);
+      expect(FastLeaveStatus.notMeasured.isComplete, isFalse);
       expect(FastLeaveStatus.measuring.isComplete, isFalse);
       expect(FastLeaveStatus.aborted.isComplete, isFalse);
+      expect(FastLeaveStatus.inconclusive.label, equals('No Traffic Before Leave'));
+      expect(FastLeaveStatus.inconclusive.isComplete, isFalse);
     });
 
     test('LeaveLatencyResult copyWith and streamKey preserve metadata', () {
@@ -280,6 +293,62 @@ void main() {
       expect(updated.leaveLatencyMs, equals(600));
       expect(updated.status, equals(FastLeaveStatus.noFastLeave));
       expect(updated.trailingPacketsReceived, equals(2));
+    });
+  });
+
+  group('FloodedStreamEntry Tests', () {
+    test('isMulticastIpv4 validates strict 4-octet multicast IPv4 addresses', () {
+      expect(FloodedStreamEntry.isMulticastIpv4('224.0.0.1'), isTrue);
+      expect(FloodedStreamEntry.isMulticastIpv4('232.1.2.3'), isTrue);
+      expect(FloodedStreamEntry.isMulticastIpv4('239.255.255.255'), isTrue);
+      expect(FloodedStreamEntry.isMulticastIpv4(' 239.69.1.1 '), isTrue);
+
+      expect(FloodedStreamEntry.isMulticastIpv4('Unknown Group'), isFalse);
+      expect(FloodedStreamEntry.isMulticastIpv4(''), isFalse);
+      expect(FloodedStreamEntry.isMulticastIpv4('192.168.1.10'), isFalse);
+      expect(FloodedStreamEntry.isMulticastIpv4('223.255.255.255'), isFalse);
+      expect(FloodedStreamEntry.isMulticastIpv4('240.0.0.1'), isFalse);
+      expect(FloodedStreamEntry.isMulticastIpv4('239.256.0.1'), isFalse);
+      expect(FloodedStreamEntry.isMulticastIpv4('239.1.1'), isFalse);
+      expect(FloodedStreamEntry.isMulticastIpv4('239.1.1.1.1'), isFalse);
+      expect(FloodedStreamEntry.isMulticastIpv4('239.+1.0.1'), isFalse);
+      expect(FloodedStreamEntry.isMulticastIpv4('239.a.0.1'), isFalse);
+    });
+
+    test('hasValidMulticastGroup and suggestedAdoptGroupIp resolve defaults accurately', () {
+      final now = DateTime(2026, 1, 1, 12, 0, 0);
+      FloodedStreamEntry makeEntry(String groupIp, String protocol) {
+        return FloodedStreamEntry(
+          groupIp: groupIp,
+          destinationPort: 5004,
+          sourceIp: '10.0.0.5',
+          detectedProtocol: protocol,
+          packetCount: 10,
+          bytesReceived: 1200,
+          firstSeen: now,
+          lastSeen: now,
+        );
+      }
+
+      final validSacn = makeEntry('239.255.0.42', 'sACN');
+      expect(validSacn.hasValidMulticastGroup, isTrue);
+      expect(validSacn.suggestedAdoptGroupIp, equals('239.255.0.42'));
+
+      final validDante = makeEntry('239.69.10.2', 'Dante / RTP');
+      expect(validDante.hasValidMulticastGroup, isTrue);
+      expect(validDante.suggestedAdoptGroupIp, equals('239.69.10.2'));
+
+      final unknownDante = makeEntry('Unknown Group', 'Dante / RTP');
+      expect(unknownDante.hasValidMulticastGroup, isFalse);
+      expect(unknownDante.suggestedAdoptGroupIp, equals('239.69.1.1'));
+
+      final unknownArtNet = makeEntry('Unknown Group', 'Art-Net');
+      expect(unknownArtNet.hasValidMulticastGroup, isFalse);
+      expect(unknownArtNet.suggestedAdoptGroupIp, equals('239.255.0.1'));
+
+      final unicastUnknown = makeEntry('192.168.1.50', 'Unknown UDP');
+      expect(unicastUnknown.hasValidMulticastGroup, isFalse);
+      expect(unicastUnknown.suggestedAdoptGroupIp, equals('239.255.0.1'));
     });
   });
 }

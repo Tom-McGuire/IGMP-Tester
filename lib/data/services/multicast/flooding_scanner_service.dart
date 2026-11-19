@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show ChangeNotifier, visibleForTesting;
 import '../../../domain/models/flooded_stream_entry.dart';
 import '../../../domain/models/multicast_packet.dart';
 
@@ -25,6 +26,9 @@ class FloodingScannerService extends ChangeNotifier {
   /// UDP ports checked for Dante / AES67 / RTP traffic (`V=2` / `0x80` header).
   static const Set<int> rtpAudioPorts = {5004, 4321};
 
+  /// Default maximum number of distinct stream keys tracked concurrently.
+  static const int defaultMaxTrackedStreams = 500;
+
   /// Explicit link-local control multicast addresses always ignored by default:
   /// - `224.0.0.1`: All Systems on this Subnet (IGMP queries)
   /// - `224.0.0.2`: All Routers on this Subnet (IGMPv2 leave)
@@ -47,6 +51,7 @@ class FloodingScannerService extends ChangeNotifier {
   ];
 
   final PassiveSocketBinder? _socketBinder;
+  final int _maxTrackedStreams;
 
   final Map<int, RawDatagramSocket> _boundSockets = {};
   final Map<int, StreamSubscription<RawSocketEvent>> _socketSubscriptions = {};
@@ -77,10 +82,15 @@ class FloodingScannerService extends ChangeNotifier {
   int _ignoredControlPacketCount = 0;
   int _ignoredJoinedPacketCount = 0;
   int _ignoredUnicastPacketCount = 0;
+  int _evictedEntryCount = 0;
 
-  FloodingScannerService({PassiveSocketBinder? socketBinder})
-      // ignore: prefer_initializing_formals
-      : _socketBinder = socketBinder;
+  FloodingScannerService({
+    PassiveSocketBinder? socketBinder,
+    int maxTrackedStreams = defaultMaxTrackedStreams,
+  }) :
+        // ignore: prefer_initializing_formals
+        _socketBinder = socketBinder,
+        _maxTrackedStreams = maxTrackedStreams < 1 ? 1 : maxTrackedStreams;
 
   /// Broadcast stream of discovered flooded stream snapshots.
   Stream<List<FloodedStreamEntry>> get entriesStream =>
@@ -145,8 +155,13 @@ class FloodingScannerService extends ChangeNotifier {
   /// Count of packets dropped because their group was in `alreadyJoinedGroups`.
   int get ignoredJoinedPacketCount => _ignoredJoinedPacketCount;
 
-  /// Count of packets dropped because an explicit unicast destination was seen.
+  /// Count of packets dropped because a unicast destination or indeterminate
+  /// UDP payload was seen.
   int get ignoredUnicastPacketCount => _ignoredUnicastPacketCount;
+
+  /// Count of oldest stream entries evicted because the tracked map reached
+  /// capacity.
+  int get evictedEntryCount => _evictedEntryCount;
 
   /// Parses dotted-quad IPv4 into 4 octets `[0..255]`, or returns `null`.
   static List<int>? _parseIpv4Octets(String ip) {
@@ -314,6 +329,7 @@ class FloodingScannerService extends ChangeNotifier {
     _ignoredControlPacketCount = 0;
     _ignoredJoinedPacketCount = 0;
     _ignoredUnicastPacketCount = 0;
+    _evictedEntryCount = 0;
 
     _monitoredPorts = sanitizedPorts;
     _interfaceAddress = interfaceAddress;
@@ -474,6 +490,7 @@ class FloodingScannerService extends ChangeNotifier {
     _ignoredControlPacketCount = 0;
     _ignoredJoinedPacketCount = 0;
     _ignoredUnicastPacketCount = 0;
+    _evictedEntryCount = 0;
     _scanElapsed = Duration.zero;
     if (_isScanning) {
       _scanStartTime = DateTime.now();
@@ -485,6 +502,7 @@ class FloodingScannerService extends ChangeNotifier {
   }
 
   /// Updates filtering options for unit tests without binding OS sockets.
+  @visibleForTesting
   void configureFiltersForTesting({
     Set<String>? alreadyJoinedGroups,
     bool? ignoreControlGroups,
@@ -507,6 +525,7 @@ class FloodingScannerService extends ChangeNotifier {
 
   /// Sets completed-scan state synchronously for deterministic widget/unit
   /// tests without binding OS sockets inside a `FakeAsync` zone.
+  @visibleForTesting
   void markScanCompletedForTesting({
     List<int>? ports,
     Duration duration = const Duration(seconds: 10),
@@ -525,6 +544,7 @@ class FloodingScannerService extends ChangeNotifier {
 
   /// Public testing hook to simulate an arriving [datagram] on [destinationPort]
   /// without network hardware or bound OS sockets.
+  @visibleForTesting
   void processDatagramForTesting(
     Datagram datagram,
     int destinationPort, {
@@ -578,9 +598,11 @@ class FloodingScannerService extends ChangeNotifier {
       return;
     }
 
-    if (_ignoreUnicast &&
-        _parseIpv4Octets(resolvedGroup) != null &&
-        !isMulticastIpv4(resolvedGroup)) {
+    final isExplicitUnicast =
+        _parseIpv4Octets(resolvedGroup) != null && !isMulticastIpv4(resolvedGroup);
+    final isIndeterminateUnknownUdp =
+        resolvedGroup == 'Unknown Group' && protocol == 'Unknown UDP';
+    if (_ignoreUnicast && (isExplicitUnicast || isIndeterminateUnknownUdp)) {
       _ignoredUnicastPacketCount++;
       _notifySafe();
       return;
@@ -599,6 +621,7 @@ class FloodingScannerService extends ChangeNotifier {
     final byteLen = payload.length;
 
     if (existing == null) {
+      _evictOldestIfFull();
       _entriesByKey[key] = FloodedStreamEntry(
         groupIp: resolvedGroup,
         destinationPort: destinationPort,
@@ -640,6 +663,20 @@ class FloodingScannerService extends ChangeNotifier {
     }
 
     _emitEntriesAndNotify();
+  }
+
+  void _evictOldestIfFull() {
+    while (_entriesByKey.length >= _maxTrackedStreams &&
+        _entriesByKey.isNotEmpty) {
+      var oldest = _entriesByKey.entries.first;
+      for (final mapEntry in _entriesByKey.entries.skip(1)) {
+        if (mapEntry.value.lastSeen.isBefore(oldest.value.lastSeen)) {
+          oldest = mapEntry;
+        }
+      }
+      _entriesByKey.remove(oldest.key);
+      _evictedEntryCount++;
+    }
   }
 
   String _resolveGroupIp({

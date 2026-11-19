@@ -405,6 +405,71 @@ void main() {
       expect(scanner.entries.first.destinationPort, equals(freePort));
       expect(scanner.entries.first.detectedProtocol, equals('IGMP Tester'));
     });
+
+    test('ignores Unknown UDP when resolvedGroup is Unknown Group and ignoreUnicast is true, while retaining Dante / RTP', () {
+      scanner.configureFiltersForTesting(ignoreUnicast: true);
+
+      // Unknown UDP without destinationGroup -> resolvedGroup == 'Unknown Group' -> ignored
+      scanner.processDatagramForTesting(
+        Datagram(Uint8List.fromList([0xDE, 0xAD, 0xBE, 0xEF]), InternetAddress('192.168.1.50'), 5004),
+        5004,
+      );
+      expect(scanner.entries, isEmpty);
+      expect(scanner.ignoredUnicastPacketCount, equals(1));
+
+      // Dante / RTP without destinationGroup -> resolvedGroup == 'Unknown Group' -> retained
+      scanner.processDatagramForTesting(
+        Datagram(_buildRtpPacket(payloadType: 96, sequence: 11), InternetAddress('192.168.1.51'), 5004),
+        5004,
+      );
+      expect(scanner.entries.length, equals(1));
+      expect(scanner.entries.first.groupIp, equals('Unknown Group'));
+      expect(scanner.entries.first.detectedProtocol, equals('Dante / RTP'));
+      expect(scanner.entries.first.hasValidMulticastGroup, isFalse);
+    });
+
+    test('maxTrackedStreams evicts oldest-seen entry cleanly when exceeded', () {
+      final boundedScanner = FloodingScannerService(maxTrackedStreams: 2);
+      addTearDown(boundedScanner.dispose);
+
+      final t0 = DateTime(2026, 11, 19, 10, 0, 0);
+      final t1 = DateTime(2026, 11, 19, 10, 0, 1);
+      final t2 = DateTime(2026, 11, 19, 10, 0, 2);
+      final t3 = DateTime(2026, 11, 19, 10, 0, 3);
+
+      // Stream 1 seen at t0, Stream 2 seen at t1
+      boundedScanner.processDatagramForTesting(
+        Datagram(_buildSacnPacket(universe: 1), InternetAddress('10.0.0.1'), 5568),
+        5568,
+        timestamp: t0,
+      );
+      boundedScanner.processDatagramForTesting(
+        Datagram(_buildSacnPacket(universe: 2), InternetAddress('10.0.0.2'), 5568),
+        5568,
+        timestamp: t1,
+      );
+      expect(boundedScanner.entries.length, equals(2));
+      expect(boundedScanner.evictedEntryCount, equals(0));
+
+      // Refresh Stream 1 at t2 so Stream 2 (lastSeen = t1) becomes the oldest
+      boundedScanner.processDatagramForTesting(
+        Datagram(_buildSacnPacket(universe: 1), InternetAddress('10.0.0.1'), 5568),
+        5568,
+        timestamp: t2,
+      );
+
+      // Stream 3 at t3 triggers eviction of Stream 2
+      boundedScanner.processDatagramForTesting(
+        Datagram(_buildSacnPacket(universe: 3), InternetAddress('10.0.0.3'), 5568),
+        5568,
+        timestamp: t3,
+      );
+
+      expect(boundedScanner.entries.length, equals(2));
+      expect(boundedScanner.evictedEntryCount, equals(1));
+      final remainingGroups = boundedScanner.entries.map((e) => e.groupIp).toSet();
+      expect(remainingGroups, equals({'239.255.0.1', '239.255.0.3'}));
+    });
   });
 
   group('FloodedStreamsSheet Widget Tests', () {
@@ -539,7 +604,7 @@ void main() {
       expect(find.text('239.255.0.3'), findsOneWidget);
     });
 
-    testWidgets('renders compact card layout cleanly inside showModalBottomSheet on narrow viewport', (tester) async {
+    testWidgets('renders compact card layout cleanly inside showDialogModal on narrow viewport', (tester) async {
       tester.view.physicalSize = const Size(520, 760);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() => tester.view.resetPhysicalSize());
@@ -560,25 +625,87 @@ void main() {
             body: Builder(
               builder: (ctx) => ElevatedButton(
                 onPressed: () {
-                  FloodedStreamsSheet.showBottomSheetModal(
+                  FloodedStreamsSheet.showDialogModal(
                     ctx,
                     scannerService: scanner,
                     autoStart: false,
                   );
                 },
-                child: const Text('Open Bottom Sheet'),
+                child: const Text('Open Narrow Dialog'),
               ),
             ),
           ),
         ),
       );
 
-      await tester.tap(find.text('Open Bottom Sheet'));
+      await tester.tap(find.text('Open Narrow Dialog'));
       await tester.pumpAndSettle();
 
       expect(find.text('239.69.1.5:5004'), findsOneWidget);
       expect(find.textContaining('Dante / RTP'), findsOneWidget);
       expect(find.text('Adopt & Track'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('prompts for multicast group IP pre-filled with 239.69.1.1 when adopting Dante / RTP Unknown Group, validates inline, and adopts valid IP', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final scanner = FloodingScannerService();
+      addTearDown(scanner.dispose);
+
+      scanner.processDatagramForTesting(
+        Datagram(_buildRtpPacket(payloadType: 96, sequence: 21), InternetAddress('10.1.2.3'), 5004),
+        5004,
+      );
+
+      FloodedStreamEntry? adoptedEntry;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.darkTheme(),
+          home: Scaffold(
+            body: FloodedStreamsSheet(
+              scannerService: scanner,
+              onAdoptStream: (entry) => adoptedEntry = entry,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Unknown Group'), findsOneWidget);
+      expect(find.text('Adopt & Track'), findsOneWidget);
+
+      await tester.tap(find.text('Adopt & Track'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Specify Multicast Group IP'), findsOneWidget);
+      final groupField = find.widgetWithText(TextField, 'Multicast Group IP');
+      expect(groupField, findsOneWidget);
+      expect(tester.widget<TextField>(groupField).controller?.text, equals('239.69.1.1'));
+
+      // Invalid unicast IP triggers inline error and prevents callback
+      await tester.enterText(groupField, '192.168.1.10');
+      await tester.tap(find.text('Adopt Group'));
+      await tester.pump();
+
+      expect(
+        find.text('Enter a valid IPv4 multicast address (224.0.0.0–239.255.255.255)'),
+        findsOneWidget,
+      );
+      expect(adoptedEntry, isNull);
+
+      // Valid multicast IP closes dialog and invokes callback with updated groupIp
+      await tester.enterText(groupField, '239.69.42.10');
+      await tester.tap(find.text('Adopt Group'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Specify Multicast Group IP'), findsNothing);
+      expect(adoptedEntry, isNotNull);
+      expect(adoptedEntry!.groupIp, equals('239.69.42.10'));
+      expect(adoptedEntry!.destinationPort, equals(5004));
+      expect(adoptedEntry!.detectedProtocol, equals('Dante / RTP'));
     });
   });
 }

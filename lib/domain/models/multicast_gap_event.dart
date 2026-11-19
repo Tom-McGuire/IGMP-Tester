@@ -34,21 +34,4 @@ class MulticastGapEvent {
 
   String get sequenceRange =>
       missingPackets == 1 ? '#$startSeq' : '#$startSeq – #$endSeq';
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'sessionId': sessionId,
-      'streamName': streamName,
-      'groupAddress': groupAddress,
-      'port': port,
-      'timestamp': timestamp.toIso8601String(),
-      'startSeq': startSeq,
-      'endSeq': endSeq,
-      'missingPackets': missingPackets,
-      'gapDurationMs': gapDurationMs,
-      'lastPacketTime': lastPacketTime.toIso8601String(),
-      'resumedTime': resumedTime.toIso8601String(),
-    };
-  }
 }

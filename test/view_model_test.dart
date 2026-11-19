@@ -27,6 +27,27 @@ class FakeQuerySnifferService extends IgmpQuerySnifferService {
   Future<String?> findTSharkPath() async => '/usr/bin/tshark';
 }
 
+class _StartableFakeSnifferService extends IgmpQuerySnifferService {
+  bool _running = false;
+
+  @override
+  bool get isRunning => _running;
+
+  @override
+  Future<String?> findTSharkPath() async => '/usr/bin/tshark';
+
+  @override
+  Future<bool> start({required NetworkInterfaceInfo? iface}) async {
+    _running = true;
+    return true;
+  }
+
+  @override
+  Future<void> stop() async {
+    _running = false;
+  }
+}
+
 void main() {
   group('IgmpTesterViewModel Tests', () {
     late IgmpTesterViewModel vm;
@@ -317,6 +338,108 @@ void main() {
       expect(vm.receiverConfig.streams.length, equals(initialCount + 1));
     });
 
+    test('adoptFloodedStream rejects Unknown Group without throwing or adding invalid stream', () async {
+      final now = DateTime.now();
+      final entry = FloodedStreamEntry(
+        groupIp: 'Unknown Group',
+        destinationPort: 5004,
+        sourceIp: '192.168.1.50',
+        detectedProtocol: 'Dante / RTP',
+        protocolDetail: 'RTP v2 PT 96 · seq 10',
+        packetCount: 15,
+        bytesReceived: 3000,
+        firstSeen: now,
+        lastSeen: now,
+      );
+
+      final initialCount = vm.receiverConfig.streams.length;
+      await vm.adoptFloodedStream(entry, autoJoinAndStart: true);
+
+      expect(vm.errorMessage, isNotNull);
+      expect(vm.errorMessage, contains('Unknown Group'));
+      expect(vm.errorMessage, contains('not a valid IPv4 multicast group'));
+      expect(vm.receiverConfig.streams.length, equals(initialCount));
+      expect(
+        vm.receiverConfig.streams.any((s) => s.groupAddress == 'Unknown Group'),
+        isFalse,
+      );
+    });
+
+    test('IgmpQuerierWatchdog resumes ticking and evaluating health after stopAll() followed by startAll() or toggleSniffer()', () async {
+      final localWatchdog = IgmpQuerierWatchdog();
+      final localSniffer = _StartableFakeSnifferService();
+      final localVm = IgmpTesterViewModel(
+        interfaceService: fakeIfaces,
+        snifferService: localSniffer,
+        watchdog: localWatchdog,
+      );
+      addTearDown(localVm.dispose);
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      // Disable default streams so startAll() starts without binding real multicast sockets
+      localVm.batchGenerateSenderStreams(
+        count: 1,
+        startingIp: '239.255.0.1',
+        basePort: 5004,
+        pps: 10,
+        packetSize: 64,
+      );
+      localVm.updateSenderStream(
+        localVm.senderConfig.streams.first.copyWith(enabled: false),
+      );
+      localVm.batchGenerateReceiverStreams(
+        count: 1,
+        startingIp: '239.255.0.1',
+        basePort: 5004,
+      );
+      localVm.updateReceiverStream(
+        localVm.receiverConfig.streams.first.copyWith(enabled: false),
+      );
+
+      IgmpQueryEvent staleBoundaryQuery() => IgmpQueryEvent(
+            timestamp: DateTime.now().subtract(const Duration(seconds: 125)),
+            querierIp: '192.168.1.1',
+            destinationIp: '224.0.0.1',
+            typeHex: '0x11',
+            typeName: 'Membership Query',
+            groupAddress: '0.0.0.0',
+            version: 'IGMPv3',
+            protocolVersion: IgmpProtocolVersion.igmpv3,
+            maxRespTimeSeconds: 10.0,
+            interfaceName: 'eth0',
+            rawSummary: 'IGMPv3 General Query',
+          );
+
+      // 1. stopAll() resets watchdog without killing its periodic ticks, and startAll() ensures it is running
+      await localVm.stopAll();
+      expect(localVm.querierStatus.health, equals(QuerierHealth.idle));
+
+      await localVm.startAll();
+      localWatchdog.recordQuery(staleBoundaryQuery());
+      await Future.delayed(const Duration(milliseconds: 20));
+      expect(localVm.querierStatus.health, equals(QuerierHealth.active));
+
+      // Within ~1.2s the 1s periodic timer ticks and transitions active -> warning (>= 126s)
+      await Future.delayed(const Duration(milliseconds: 1250));
+      expect(localVm.querierStatus.health, equals(QuerierHealth.warning));
+      expect(localVm.querierStatus.secondsSinceLastQuery, greaterThanOrEqualTo(126));
+
+      // 2. stopAll() followed by toggleSniffer() also ticks and evaluates health
+      await localVm.stopAll();
+      expect(localVm.querierStatus.health, equals(QuerierHealth.idle));
+
+      await localVm.toggleSniffer();
+      expect(localVm.isSnifferRunning, isTrue);
+
+      localWatchdog.recordQuery(staleBoundaryQuery());
+      await Future.delayed(const Duration(milliseconds: 20));
+      expect(localVm.querierStatus.health, equals(QuerierHealth.active));
+
+      await Future.delayed(const Duration(milliseconds: 1250));
+      expect(localVm.querierStatus.health, equals(QuerierHealth.warning));
+      expect(localVm.querierStatus.secondsSinceLastQuery, greaterThanOrEqualTo(126));
+    });
+
     test('Fast-Leave mode supports measurement, double-click abort, and clear', () async {
       final probe = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       final freePort = probe.port;
@@ -399,7 +522,28 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 20));
 
       expect(vmWithRx.dscpPolicyWarning, contains('QoS Stripped'));
+      expect(vmWithRx.dscpPolicyWarning, isNot(contains('(In-Band Sender Tag)')));
       expect(vmWithRx.diagnosticWarning, contains('QoS Policy Alert'));
+
+      // Now simulate live OS socket path (receivedTosByte omitted) where in-band sender tag mismatches expectedDscp
+      final inBandMismatchPacket = MulticastPacket(
+        sessionId: 'qos_vm_inband',
+        sequenceNumber: 1,
+        sendTimestampUs: DateTime.now().microsecondsSinceEpoch,
+        payloadSize: 64,
+        destinationGroup: '239.255.10.1',
+        destinationPort: 5004,
+        dscpValue: DscpPreset.bestEffort.dscpValue,
+      );
+      receiverService.processDatagramForTesting(
+        Datagram(inBandMismatchPacket.encode(), InternetAddress('192.168.1.50'), 40000),
+        5004,
+      );
+      receiverService.recalculateStatsForTesting();
+      await Future.delayed(const Duration(milliseconds: 20));
+
+      expect(vmWithRx.dscpPolicyWarning, contains('QoS Stripped'));
+      expect(vmWithRx.dscpPolicyWarning, contains('(In-Band Sender Tag)'));
     });
 
     test('Issue #1: LaunchAdapterConfig selects by IPv4 priority, name fallback, default fallback, and preserves manual selection', () async {
