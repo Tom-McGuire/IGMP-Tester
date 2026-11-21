@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:network_suite_shared/network_suite_shared.dart';
 import '../../../../domain/models/dscp_preset.dart';
 import '../../../../domain/models/flooded_stream_entry.dart';
 import '../../../../domain/models/igmp_query_event.dart';
@@ -24,7 +25,12 @@ class IgmpTesterViewModel extends ChangeNotifier {
   final IgmpQuerierWatchdog _watchdog;
   final FloodingScannerService _floodingScannerService;
   final CsvExportService _csvService;
+  final SharedDeviceDatabase _sharedDatabase;
+  final ArpCacheParser _arpParser;
   final LaunchAdapterConfig? launchAdapterConfig;
+
+  String? _lastDbQuerierKey;
+  DateTime? _lastDbQuerierMarkedAt;
 
   StreamSubscription? _senderSub;
   StreamSubscription? _senderStreamSub;
@@ -49,6 +55,8 @@ class IgmpTesterViewModel extends ChangeNotifier {
     IgmpQuerierWatchdog? watchdog,
     FloodingScannerService? floodingScannerService,
     CsvExportService? csvService,
+    SharedDeviceDatabase? sharedDatabase,
+    ArpCacheParser? arpParser,
     this.launchAdapterConfig,
   })  : _interfaceService = interfaceService ?? NetworkInterfaceService(),
         _senderService = senderService ?? MulticastSenderService(),
@@ -57,10 +65,22 @@ class IgmpTesterViewModel extends ChangeNotifier {
         _watchdog = watchdog ?? IgmpQuerierWatchdog(),
         _floodingScannerService =
             floodingScannerService ?? FloodingScannerService(),
-        _csvService = csvService ?? CsvExportService() {
+        _csvService = csvService ?? CsvExportService(),
+        _sharedDatabase = sharedDatabase ?? SharedDeviceDatabase.instance,
+        _arpParser = arpParser ?? ArpCacheParser() {
     _floodingScannerService.addListener(_onFloodingScannerChanged);
     _scannerListenerAttached = true;
     init();
+  }
+
+  /// Active IGMP Querier switches persisted in the suite-wide [SharedDeviceDatabase].
+  List<SharedDevice> get knownIgmpQueriers {
+    if (!_sharedDatabase.isInitialized) return const [];
+    try {
+      return _sharedDatabase.getIgmpQueriers();
+    } catch (_) {
+      return const [];
+    }
   }
 
   List<NetworkInterfaceInfo> _interfaces = [];
@@ -274,6 +294,9 @@ class IgmpTesterViewModel extends ChangeNotifier {
     _snifferSub = _snifferService.queryStream.listen((event) {
       _igmpEvents = _snifferService.events;
       _watchdog.recordQuery(event);
+      if (event.isQuery && !_isDemoMode) {
+        unawaited(_recordQuerierInSharedDb(event));
+      }
       notifyListeners();
     });
 
@@ -292,6 +315,48 @@ class IgmpTesterViewModel extends ChangeNotifier {
 
     _watchdog.start();
     notifyListeners();
+  }
+
+  Future<void> _recordQuerierInSharedDb(IgmpQueryEvent event) async {
+    if (!_sharedDatabase.isInitialized || _isDemoMode) return;
+
+    final versionLabel = event.protocolVersion != IgmpProtocolVersion.unknown
+        ? event.protocolVersion.label
+        : null;
+    final throttleKey = '${event.querierIp}|${versionLabel ?? ''}';
+    final now = DateTime.now();
+    if (_lastDbQuerierKey == throttleKey &&
+        _lastDbQuerierMarkedAt != null &&
+        now.difference(_lastDbQuerierMarkedAt!) < const Duration(seconds: 30)) {
+      return;
+    }
+
+    try {
+      String? mac = event.querierMac;
+      if (mac == null || !SharedDevice.isValidMac(mac)) {
+        if (ArpCacheParser.isValidIpv4(event.querierIp)) {
+          mac = await _arpParser.resolveMacForIp(event.querierIp);
+        }
+      }
+      if (mac != null) {
+        mac = SharedDevice.normalizeMac(mac);
+      }
+
+      if (mac == null || !SharedDevice.isValidMac(mac)) return;
+
+      _lastDbQuerierKey = throttleKey;
+      _lastDbQuerierMarkedAt = now;
+
+      _sharedDatabase.markIgmpQuerier(
+        mac,
+        seenAt: event.timestamp,
+        igmpVersion: versionLabel,
+        sourceApp: 'igmp-tester',
+      );
+      notifyListeners();
+    } catch (_) {
+      // Non-critical cross-app telemetry; ignore DB lock/read issues cleanly.
+    }
   }
 
   Future<void> refreshInterfaces() async {

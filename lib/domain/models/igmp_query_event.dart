@@ -52,6 +52,7 @@ class IgmpQueryEvent {
   final int? qqicSeconds;
   final bool suppressRouterProcessing;
   final List<String> sourceAddresses;
+  final String? querierMac;
 
   const IgmpQueryEvent({
     required this.timestamp,
@@ -69,6 +70,7 @@ class IgmpQueryEvent {
     this.qqicSeconds,
     this.suppressRouterProcessing = false,
     this.sourceAddresses = const [],
+    this.querierMac,
   }) : _protocolVersion = protocolVersion ??
             (version == 'IGMPv1'
                 ? IgmpProtocolVersion.igmpv1
@@ -295,6 +297,7 @@ class IgmpQueryEvent {
       'qqicSeconds': qqicSeconds,
       'suppressRouterProcessing': suppressRouterProcessing,
       'sourceAddresses': sourceAddresses,
+      if (querierMac != null) 'querierMac': querierMac,
       'interfaceName': interfaceName,
       'rawSummary': rawSummary,
     };

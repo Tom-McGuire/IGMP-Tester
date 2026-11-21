@@ -13,6 +13,7 @@ import 'package:igmp_tester/domain/models/multicast_packet.dart';
 import 'package:igmp_tester/domain/models/multicast_stats.dart';
 import 'package:igmp_tester/domain/models/network_interface_info.dart';
 import 'package:igmp_tester/ui/features/dashboard/view_models/igmp_tester_view_model.dart';
+import 'package:network_suite_shared/network_suite_shared.dart';
 
 class FakeNetworkInterfaceService extends NetworkInterfaceService {
   final List<NetworkInterfaceInfo> fakeInterfaces;
@@ -701,6 +702,65 @@ void main() {
       expect(demoVm.querierStatus.health, equals(QuerierHealth.idle));
       expect(demoVm.querierStatus.querierVersion, equals(IgmpProtocolVersion.unknown));
       expect(demoVm.querierStatus.querierIp, isNull);
+    });
+
+    test('Issue #10: active IGMP queries flag querier switches in SharedDeviceDatabase via eth.src or ARP lookup', () async {
+      final db = SharedDeviceDatabase(customPath: ':memory:');
+      await db.init(dbPath: ':memory:');
+      addTearDown(db.close);
+
+      final arpParser = ArpCacheParser(
+        isLinux: true,
+        isWindows: false,
+        isMacOS: false,
+        fileReader: (path) async {
+          if (path == '/proc/net/arp') {
+            return 'IP address       HW type     Flags       HW address            Mask     Device\n'
+                '192.168.10.254   0x1         0x2         00:11:22:33:44:55     *        eth0\n';
+          }
+          return null;
+        },
+        processRunner: (_, _) async => ProcessResult(0, 1, '', ''),
+      );
+
+      final localSniffer = FakeQuerySnifferService();
+      final localVm = IgmpTesterViewModel(
+        interfaceService: fakeIfaces,
+        snifferService: localSniffer,
+        sharedDatabase: db,
+        arpParser: arpParser,
+      );
+      addTearDown(localVm.dispose);
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      // 1. Direct MAC from 12th column (eth.src)
+      localSniffer.parseLineForTesting(
+        '1712345678.000\t192.168.10.1\t224.0.0.1\t0x11\t0x64\t0.0.0.0\t3\t2\t125\t0\t\tAA:BB:CC:DD:EE:FF',
+      );
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      final queriers1 = localVm.knownIgmpQueriers;
+      expect(queriers1.length, equals(1));
+      expect(queriers1.first.macAddress, equals('AA:BB:CC:DD:EE:FF'));
+      expect(queriers1.first.isIgmpQuerier, isTrue);
+      expect(queriers1.first.lastQuerierSeen, isNotNull);
+      expect(queriers1.first.igmpQuerierVersion, equals('IGMPv3'));
+
+      // 2. IP-only query resolves MAC via ArpCacheParser
+      localSniffer.parseLineForTesting(
+        '1712345679.000\t192.168.10.254\t224.0.0.1\t0x11\t0x64\t0.0.0.0\t2',
+      );
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      final queriers2 = db.getIgmpQueriers();
+      expect(queriers2.length, equals(2));
+      expect(
+        queriers2.any((q) =>
+            q.macAddress == '00:11:22:33:44:55' &&
+            q.isIgmpQuerier &&
+            q.igmpQuerierVersion == 'IGMPv2'),
+        isTrue,
+      );
     });
   });
 }

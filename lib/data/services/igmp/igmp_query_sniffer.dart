@@ -3,13 +3,18 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:network_suite_shared/network_suite_shared.dart';
 import '../../../domain/models/igmp_query_event.dart';
 import '../../../domain/models/network_interface_info.dart';
 
 class IgmpQuerySnifferService {
-  IgmpQuerySnifferService({this.customTSharkPath});
+  IgmpQuerySnifferService({
+    this.customTSharkPath,
+    CaptureBinaryLocator? binaryLocator,
+  }) : _binaryLocator = binaryLocator ?? CaptureBinaryLocator();
 
   final String? customTSharkPath;
+  final CaptureBinaryLocator _binaryLocator;
   Process? _process;
   bool _isRunning = false;
   String? _lastError;
@@ -34,63 +39,20 @@ class IgmpQuerySnifferService {
   IgmpProtocolVersion get querierVersion => _querierVersion;
   String _activeInterfaceName = '';
 
-  Future<String?> findTSharkPath() async {
-    if (customTSharkPath != null && customTSharkPath!.isNotEmpty) {
-      if (await File(customTSharkPath!).exists()) {
-        return customTSharkPath;
-      }
-    }
+  Future<String?> findTSharkPath() {
+    return _binaryLocator.findBinaryPath(
+      CaptureTool.tshark,
+      customPath: customTSharkPath,
+    );
+  }
 
-    if (Platform.isWindows) {
-      const candidates = [
-        r'C:\Program Files\Wireshark\tshark.exe',
-        r'C:\Program Files (x86)\Wireshark\tshark.exe',
-      ];
-      for (final p in candidates) {
-        if (await File(p).exists()) return p;
-      }
-
-      try {
-        final res = await Process.run('where.exe', [r'$PATH:tshark']);
-        if (res.exitCode == 0 && res.stdout.toString().trim().isNotEmpty) {
-          final lines = res.stdout.toString().trim().split(RegExp(r'[\r\n]+'));
-          final cwd = Directory.current.path.toLowerCase();
-          for (final raw in lines) {
-            final candidate = raw.trim();
-            if (candidate.isEmpty) continue;
-            final lower = candidate.toLowerCase();
-            // Ensure candidate is outside CWD to prevent binary hijacking
-            if (!lower.startsWith(cwd) && await File(candidate).exists()) {
-              return candidate;
-            }
-          }
-        }
-      } catch (_) {}
-    } else {
-      const candidates = [
-        '/usr/bin/tshark',
-        '/usr/local/bin/tshark',
-        '/opt/homebrew/bin/tshark',
-      ];
-      for (final p in candidates) {
-        if (await File(p).exists()) return p;
-      }
-
-      try {
-        final res = await Process.run('which', ['tshark']);
-        if (res.exitCode == 0 && res.stdout.toString().trim().isNotEmpty) {
-          final lines = res.stdout.toString().trim().split(RegExp(r'[\r\n]+'));
-          for (final raw in lines) {
-            final candidate = raw.trim();
-            if (candidate.isNotEmpty && await File(candidate).exists()) {
-              return candidate;
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
-    return null;
+  /// Checks whether the current OS user can capture packets via `tshark`.
+  Future<CapturePermissionResult> checkTSharkPermissions({String? binaryPath}) {
+    return _binaryLocator.checkCapturePermissions(
+      CaptureTool.tshark,
+      binaryPath: binaryPath,
+      customPath: customTSharkPath,
+    );
   }
 
   Future<bool> start({
@@ -123,6 +85,7 @@ class IgmpQuerySnifferService {
       '-e', 'igmp.qqic',
       '-e', 'igmp.s',
       '-e', 'igmp.saddr',
+      '-e', 'eth.src',
     ];
 
     // Select interface if specified
@@ -190,6 +153,14 @@ class IgmpQuerySnifferService {
     final qqicRaw = parts.length > 8 ? parts[8].trim() : '';
     final sRaw = parts.length > 9 ? parts[9].trim() : '';
     final saddrRaw = parts.length > 10 ? parts[10].trim() : '';
+    final ethSrcRaw = parts.length > 11 ? parts[11].trim() : '';
+    final normalizedMac = ethSrcRaw.isEmpty
+        ? null
+        : SharedDevice.normalizeMac(ethSrcRaw);
+    final querierMac = (normalizedMac != null &&
+            SharedDevice.isValidMac(normalizedMac))
+        ? normalizedMac
+        : null;
 
     DateTime ts = DateTime.now();
     final epoch = double.tryParse(epochStr);
@@ -284,6 +255,7 @@ class IgmpQuerySnifferService {
       qqicSeconds: qqicSeconds,
       suppressRouterProcessing: suppress,
       sourceAddresses: List.unmodifiable(sourceAddresses),
+      querierMac: querierMac,
       interfaceName: _activeInterfaceName,
       rawSummary: line,
     );

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:igmp_tester/data/services/igmp/igmp_query_sniffer.dart';
 import 'package:igmp_tester/domain/models/igmp_query_event.dart';
+import 'package:network_suite_shared/network_suite_shared.dart';
 
 void main() {
   group('IgmpQuerySnifferService Tests', () {
@@ -358,6 +359,29 @@ void main() {
       final event = IgmpQueryEvent.fromRawIgmpBytes(truncatedSourcesPayload);
       expect(event, isNotNull);
       expect(event!.sourceAddresses, equals(['192.168.50.10']));
+    });
+
+    test('findTSharkPath uses CaptureBinaryLocator and parseLine extracts 12th-column eth.src MAC', () async {
+      final locator = CaptureBinaryLocator(
+        fileExists: (path) => path == '/custom/bin/tshark',
+        isWindows: false,
+        isLinux: true,
+        isMacOS: false,
+      );
+      final locatedSniffer = IgmpQuerySnifferService(
+        customTSharkPath: '/custom/bin/tshark',
+        binaryLocator: locator,
+      );
+      addTearDown(locatedSniffer.dispose);
+
+      expect(await locatedSniffer.findTSharkPath(), equals('/custom/bin/tshark'));
+
+      locatedSniffer.parseLineForTesting(
+        '1712345678.000\t192.168.10.1\t224.0.0.1\t0x11\t0x64\t0.0.0.0\t3\t2\t125\t0\t\taa:bb:cc:dd:ee:ff',
+      );
+      expect(locatedSniffer.events.length, equals(1));
+      expect(locatedSniffer.events.first.querierMac, equals('AA:BB:CC:DD:EE:FF'));
+      expect(locatedSniffer.events.first.toMap()['querierMac'], equals('AA:BB:CC:DD:EE:FF'));
     });
   });
 }

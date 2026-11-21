@@ -404,6 +404,43 @@ class _DeviceLibraryDialogState extends State<DeviceLibraryDialog>
                             style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                           ),
                         ),
+                        if (vm.knownIgmpQueriers.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Divider(height: 1, color: AppTheme.border),
+                          const SizedBox(height: 8),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            child: Text(
+                              'Shared Suite IGMP Querier Switches',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: accentHighlight,
+                              ),
+                            ),
+                          ),
+                          ...vm.knownIgmpQueriers.map(
+                            (querier) => ListTile(
+                              dense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                              leading: Icon(
+                                Icons.dns_outlined,
+                                size: 16,
+                                color: AppTheme.success,
+                              ),
+                              title: Text(
+                                querier.name,
+                                style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                              ),
+                              subtitle: Text(
+                                'MAC: ${querier.macAddress}'
+                                '${querier.vendor != null ? ' • ${querier.vendor}' : ''}'
+                                '${querier.igmpQuerierVersion != null ? ' • ${querier.igmpQuerierVersion}' : ''}',
+                                style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ],
