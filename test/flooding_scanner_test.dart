@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +9,48 @@ import 'package:igmp_tester/domain/models/multicast_packet.dart';
 import 'package:igmp_tester/ui/features/receiver/views/flooded_streams_sheet.dart';
 import 'package:igmp_tester/ui/theme/app_theme.dart';
 import 'package:material_ui/material_ui.dart';
+
+class _FakeTSharkProcess implements Process {
+  final StreamController<List<int>> stdoutController =
+      StreamController<List<int>>();
+  final StreamController<List<int>> stderrController =
+      StreamController<List<int>>();
+  final Completer<int> exitCompleter = Completer<int>();
+  bool killed = false;
+
+  void emitStdoutLine(String line) {
+    stdoutController.add(utf8.encode('$line\n'));
+  }
+
+  @override
+  Future<int> get exitCode => exitCompleter.future;
+
+  @override
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
+    killed = true;
+    if (!exitCompleter.isCompleted) {
+      exitCompleter.complete(0);
+    }
+    stdoutController.close();
+    stderrController.close();
+    return true;
+  }
+
+  @override
+  int get pid => 12345;
+
+  @override
+  Stream<List<int>> get stderr => stderrController.stream;
+
+  @override
+  IOSink get stdin => throw UnimplementedError();
+
+  @override
+  Stream<List<int>> get stdout => stdoutController.stream;
+}
+
+String _toHex(Uint8List bytes) =>
+    bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
 Uint8List _buildSacnPacket({required int universe, int length = 126}) {
   final bytes = Uint8List(length);
@@ -706,6 +750,181 @@ void main() {
       expect(adoptedEntry!.groupIp, equals('239.69.42.10'));
       expect(adoptedEntry!.destinationPort, equals(5004));
       expect(adoptedEntry!.detectedProtocol, equals('Dante / RTP'));
+    });
+
+    testWidgets('displays L2 Promiscuous (TShark) badge and UDP fallback notice', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final scanner = FloodingScannerService();
+      addTearDown(scanner.dispose);
+
+      scanner.markScanCompletedForTesting(
+        scanMode: FloodingScanMode.tsharkL2,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.darkTheme(),
+          home: Scaffold(
+            body: FloodedStreamsSheet(scannerService: scanner),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('L2 Promiscuous (TShark)'), findsOneWidget);
+
+      scanner.markScanCompletedForTesting(
+        scanMode: FloodingScanMode.udpSocketFallback,
+        captureNotice: 'TShark/Wireshark not found — using UDP socket fallback.',
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('UDP Socket Fallback'), findsOneWidget);
+      expect(
+        find.text('TShark/Wireshark not found — using UDP socket fallback.'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('FloodingScannerService TShark L2 Promiscuous Capture Tests', () {
+    test('buildTSharkArgs constructs BPF multicast filter and optional interface', () {
+      final defaultArgs = FloodingScannerService.buildTSharkArgs();
+      expect(defaultArgs, containsAllInOrder(['-f', 'udp and dst net 224.0.0.0/4']));
+      expect(defaultArgs, containsAllInOrder(['-e', 'ip.dst']));
+      expect(defaultArgs, containsAllInOrder(['-e', 'udp.payload']));
+      expect(defaultArgs, isNot(contains('-i')));
+
+      final ifaceArgs = FloodingScannerService.buildTSharkArgs(interfaceName: 'eth0');
+      expect(ifaceArgs, containsAllInOrder(['-i', 'eth0']));
+
+      final anyArgs = FloodingScannerService.buildTSharkArgs(interfaceName: 'Default (Any)');
+      expect(anyArgs, isNot(contains('-i')));
+    });
+
+    test('decodeHexPayload decodes both contiguous and colon-separated hex', () {
+      expect(
+        FloodingScannerService.decodeHexPayload('0010415343'),
+        equals(Uint8List.fromList([0x00, 0x10, 0x41, 0x53, 0x43])),
+      );
+      expect(
+        FloodingScannerService.decodeHexPayload('80:60:00:01'),
+        equals(Uint8List.fromList([0x80, 0x60, 0x00, 0x01])),
+      );
+      expect(FloodingScannerService.decodeHexPayload(''), isEmpty);
+    });
+
+    test('processTSharkLineForTesting parses sACN, Dante/RTP with real ip.dst, and filters control/joined groups', () {
+      final scanner = FloodingScannerService();
+      addTearDown(scanner.dispose);
+
+      scanner.configureFiltersForTesting(
+        alreadyJoinedGroups: {'239.255.0.99:5568'},
+      );
+
+      // 1. Unjoined sACN Universe 1 on 239.255.0.1:5568
+      final sacnHex = _toHex(_buildSacnPacket(universe: 1, length: 638));
+      scanner.processTSharkLineForTesting(
+        '1700000000.100\t10.10.1.50\t239.255.0.1\t5568\t646\t$sacnHex',
+      );
+
+      // 2. Unjoined Dante/RTP on 239.69.1.10:5004 (recovers exact ip.dst!)
+      final rtpHex = _toHex(_buildRtpPacket(payloadType: 96, sequence: 42));
+      scanner.processTSharkLineForTesting(
+        '1700000000.200\t10.10.1.60\t239.69.1.10\t5004\t20\t$rtpHex',
+      );
+
+      // 3. Control multicast (mDNS 224.0.0.251) -> ignored
+      scanner.processTSharkLineForTesting(
+        '1700000000.300\t10.10.1.1\t224.0.0.251\t5353\t48\t0000',
+      );
+
+      // 4. Already joined sACN Universe 99 -> ignored
+      final sacn99Hex = _toHex(_buildSacnPacket(universe: 99, length: 126));
+      scanner.processTSharkLineForTesting(
+        '1700000000.400\t10.10.1.50\t239.255.0.99\t5568\t134\t$sacn99Hex',
+      );
+
+      expect(scanner.ignoredControlPacketCount, equals(1));
+      expect(scanner.ignoredJoinedPacketCount, equals(1));
+      expect(scanner.entries.length, equals(2));
+
+      final sacnEntry = scanner.entries.firstWhere((e) => e.detectedProtocol == 'sACN');
+      expect(sacnEntry.groupIp, equals('239.255.0.1'));
+      expect(sacnEntry.destinationPort, equals(5568));
+      expect(sacnEntry.sourceIp, equals('10.10.1.50'));
+      expect(sacnEntry.protocolDetail, equals('Univ 1'));
+      expect(sacnEntry.hasValidMulticastGroup, isTrue);
+
+      final rtpEntry = scanner.entries.firstWhere((e) => e.detectedProtocol == 'Dante / RTP');
+      expect(rtpEntry.groupIp, equals('239.69.1.10'));
+      expect(rtpEntry.destinationPort, equals(5004));
+      expect(rtpEntry.hasValidMulticastGroup, isTrue);
+    });
+
+    test('startScan uses tshark L2 mode when tshark is available and captures sACN', () async {
+      final fakeProc = _FakeTSharkProcess();
+      List<String>? capturedArgs;
+
+      final scanner = FloodingScannerService(
+        tsharkPathResolver: () async => '/usr/bin/tshark',
+        processStarter: (exe, args) async {
+          capturedArgs = args;
+          return fakeProc;
+        },
+      );
+      addTearDown(scanner.dispose);
+
+      await scanner.startScan(
+        interfaceName: 'eth0',
+        duration: const Duration(seconds: 5),
+      );
+
+      expect(scanner.isScanning, isTrue);
+      expect(scanner.activeScanMode, equals(FloodingScanMode.tsharkL2));
+      expect(scanner.captureNotice, isNull);
+      expect(capturedArgs, containsAllInOrder(['-i', 'eth0']));
+
+      final sacnHex = _toHex(_buildSacnPacket(universe: 5, length: 638));
+      fakeProc.emitStdoutLine(
+        '1700000001.000\t192.168.50.10\t239.255.0.5\t5568\t646\t$sacnHex',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(scanner.entries.length, equals(1));
+      expect(scanner.entries.first.groupIp, equals('239.255.0.5'));
+      expect(scanner.entries.first.detectedProtocol, equals('sACN'));
+      expect(scanner.entries.first.protocolDetail, equals('Univ 5'));
+
+      await scanner.stopScan();
+      expect(fakeProc.killed, isTrue);
+      expect(scanner.isScanning, isFalse);
+      expect(scanner.hasCompletedScan, isTrue);
+    });
+
+    test('startScan falls back to UDP sockets with captureNotice when tshark is unavailable', () async {
+      final probe = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      final freePort = probe.port;
+      probe.close();
+
+      final scanner = FloodingScannerService(
+        tsharkPathResolver: () async => null,
+      );
+      addTearDown(scanner.dispose);
+
+      await scanner.startScan(
+        ports: [freePort],
+        duration: const Duration(seconds: 5),
+      );
+
+      expect(scanner.activeScanMode, equals(FloodingScanMode.udpSocketFallback));
+      expect(scanner.captureNotice, contains('TShark/Wireshark not found'));
+      expect(scanner.boundPorts, equals([freePort]));
+
+      await scanner.stopScan();
     });
   });
 }

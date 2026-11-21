@@ -1,12 +1,34 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show ChangeNotifier, visibleForTesting;
 import '../../../domain/models/flooded_stream_entry.dart';
 import '../../../domain/models/multicast_packet.dart';
+import '../igmp/igmp_query_sniffer.dart';
 
 /// Optional socket binder callback used to override passive UDP binding in tests.
 typedef PassiveSocketBinder = Future<RawDatagramSocket> Function(int port);
+
+/// Optional callback to resolve the `tshark` executable path in tests.
+typedef TSharkPathResolver = Future<String?> Function();
+
+/// Optional callback to spawn a `tshark` process in tests.
+typedef TSharkProcessStarter = Future<Process> Function(
+  String executable,
+  List<String> arguments,
+);
+
+/// Capture backend currently used by [FloodingScannerService].
+enum FloodingScanMode {
+  /// Layer-2 promiscuous capture via `tshark` (`libpcap`/`Npcap`). Sees all
+  /// flooded multicast traffic hitting the NIC without sending IGMP Joins.
+  tsharkL2,
+
+  /// Fallback userspace UDP socket listener. OS kernels typically drop
+  /// unjoined multicast frames unless another socket on the host joined.
+  udpSocketFallback,
+}
 
 /// Passive unjoined multicast flooding scanner.
 ///
@@ -51,12 +73,21 @@ class FloodingScannerService extends ChangeNotifier {
   ];
 
   final PassiveSocketBinder? _socketBinder;
+  final TSharkPathResolver? _tsharkPathResolver;
+  final TSharkProcessStarter? _processStarter;
   final int _maxTrackedStreams;
 
   final Map<int, RawDatagramSocket> _boundSockets = {};
   final Map<int, StreamSubscription<RawSocketEvent>> _socketSubscriptions = {};
   final Map<int, String> _portErrors = {};
   final Map<String, FloodedStreamEntry> _entriesByKey = {};
+
+  Process? _tsharkProcess;
+  StreamSubscription<String>? _tsharkStdoutSub;
+  StreamSubscription<String>? _tsharkStderrSub;
+  FloodingScanMode _activeScanMode = FloodingScanMode.udpSocketFallback;
+  String? _captureNotice;
+  String? _activeInterfaceName;
 
   final StreamController<List<FloodedStreamEntry>> _entriesController =
       StreamController<List<FloodedStreamEntry>>.broadcast();
@@ -86,11 +117,28 @@ class FloodingScannerService extends ChangeNotifier {
 
   FloodingScannerService({
     PassiveSocketBinder? socketBinder,
+    TSharkPathResolver? tsharkPathResolver,
+    TSharkProcessStarter? processStarter,
     int maxTrackedStreams = defaultMaxTrackedStreams,
   }) :
-        // ignore: prefer_initializing_formals
-        _socketBinder = socketBinder,
-        _maxTrackedStreams = maxTrackedStreams < 1 ? 1 : maxTrackedStreams;
+       // ignore: prefer_initializing_formals
+       _socketBinder = socketBinder,
+       // ignore: prefer_initializing_formals
+       _tsharkPathResolver = tsharkPathResolver,
+       // ignore: prefer_initializing_formals
+       _processStarter = processStarter,
+       _maxTrackedStreams = maxTrackedStreams < 1 ? 1 : maxTrackedStreams;
+
+  /// Active capture backend (`tsharkL2` when `tshark` is available, otherwise
+  /// `udpSocketFallback`).
+  FloodingScanMode get activeScanMode => _activeScanMode;
+
+  /// Informational or warning notice explaining fallback capture limitations
+  /// (for example when `tshark` is unavailable or lacks capture permissions).
+  String? get captureNotice => _captureNotice;
+
+  /// Selected OS network interface name passed to `tshark -i`, if any.
+  String? get activeInterfaceName => _activeInterfaceName;
 
   /// Broadcast stream of discovered flooded stream snapshots.
   Stream<List<FloodedStreamEntry>> get entriesStream =>
@@ -291,16 +339,59 @@ class FloodingScannerService extends ChangeNotifier {
     return true;
   }
 
-  /// Starts a passive unjoined scan across [ports] for [duration].
+  /// Builds `tshark` CLI arguments for passive Layer-2 promiscuous capture of
+  /// all IPv4 multicast UDP frames (`224.0.0.0/4`) without sending IGMP Joins.
+  @visibleForTesting
+  static List<String> buildTSharkArgs({String? interfaceName}) {
+    final args = <String>[
+      '-l', // line-buffered stdout
+      '-n', // disable DNS/name resolution
+      '-f', 'udp and dst net 224.0.0.0/4',
+      '-T', 'fields',
+      '-E', 'separator=\t',
+      '-e', 'frame.time_epoch',
+      '-e', 'ip.src',
+      '-e', 'ip.dst',
+      '-e', 'udp.dstport',
+      '-e', 'udp.length',
+      '-e', 'udp.payload',
+    ];
+    final trimmedIface = interfaceName?.trim();
+    if (trimmedIface != null &&
+        trimmedIface.isNotEmpty &&
+        trimmedIface != 'Default (Any)') {
+      args.addAll(['-i', trimmedIface]);
+    }
+    return args;
+  }
+
+  /// Decodes a hex-encoded `tshark` `udp.payload` field (either contiguous hex
+  /// or colon-separated bytes) into raw payload bytes.
+  @visibleForTesting
+  static Uint8List decodeHexPayload(String hex) {
+    final cleaned = hex.replaceAll(RegExp(r'[^0-9a-fA-F]'), '');
+    if (cleaned.length < 2) return Uint8List(0);
+    final byteCount = cleaned.length ~/ 2;
+    final bytes = Uint8List(byteCount);
+    for (int i = 0; i < byteCount; i++) {
+      bytes[i] = int.parse(cleaned.substring(i * 2, i * 2 + 2), radix: 16);
+    }
+    return bytes;
+  }
+
+  /// Starts a passive unjoined scan for [duration].
   ///
-  /// Binds UDP sockets on `0.0.0.0:<port>` without ever calling
-  /// `joinMulticast()`, so zero IGMP Membership Reports are generated.
-  /// Any per-port [SocketException] is captured in [portErrors] rather than
-  /// aborting the remaining ports.
+  /// Prefers Layer-2 promiscuous capture via `tshark` (`libpcap`/`Npcap`) when
+  /// available so unjoined multicast frames (e.g., sACN `239.255.x.x:5568`)
+  /// are captured before the OS kernel drops them. Falls back to passive UDP
+  /// sockets on [ports] (without ever calling `joinMulticast()`) when `tshark`
+  /// is unavailable or when a custom `socketBinder` is injected for tests.
   Future<void> startScan({
     List<int> ports = defaultPorts,
     Duration duration = const Duration(seconds: 10),
     InternetAddress? interfaceAddress,
+    String? interfaceName,
+    String? tsharkPath,
     Set<String> alreadyJoinedGroups = const {},
     bool ignoreControlGroups = true,
     bool ignoreUnicast = true,
@@ -314,6 +405,7 @@ class FloodingScannerService extends ChangeNotifier {
     final sanitizedPorts = <int>[];
     final seenPorts = <int>{};
     _portErrors.clear();
+    _captureNotice = null;
 
     for (final port in ports) {
       if (port < 1 || port > 65535) {
@@ -333,6 +425,7 @@ class FloodingScannerService extends ChangeNotifier {
 
     _monitoredPorts = sanitizedPorts;
     _interfaceAddress = interfaceAddress;
+    _activeInterfaceName = interfaceName;
     _alreadyJoinedGroups = Set<String>.from(alreadyJoinedGroups);
     _ignoreControlGroups = ignoreControlGroups;
     _ignoreUnicast = ignoreUnicast;
@@ -346,6 +439,158 @@ class FloodingScannerService extends ChangeNotifier {
 
     _emitEntriesAndNotify();
 
+    // Prefer Layer-2 promiscuous capture via tshark unless a custom UDP socket
+    // binder was injected (used by unit tests).
+    bool startedTShark = false;
+    if (_socketBinder == null) {
+      String? resolvedTShark =
+          (tsharkPath != null && tsharkPath.trim().isNotEmpty)
+              ? tsharkPath.trim()
+              : null;
+      if (resolvedTShark == null) {
+        try {
+          resolvedTShark = _tsharkPathResolver != null
+              ? await _tsharkPathResolver()
+              : await IgmpQuerySnifferService().findTSharkPath();
+        } catch (_) {
+          resolvedTShark = null;
+        }
+      }
+
+      if (_disposed || generation != _scanGeneration) return;
+
+      if (resolvedTShark != null && resolvedTShark.isNotEmpty) {
+        startedTShark = await _startTSharkL2Capture(
+          executable: resolvedTShark,
+          interfaceName: interfaceName,
+          generation: generation,
+          fallbackPorts: sanitizedPorts,
+        );
+      } else {
+        _captureNotice =
+            'TShark/Wireshark not found — using UDP socket fallback. OS kernels '
+            'typically drop unjoined multicast frames without Layer-2 capture '
+            '(install Wireshark/Npcap for full unregistered multicast detection).';
+      }
+    }
+
+    if (_disposed || generation != _scanGeneration) return;
+
+    if (!startedTShark) {
+      _activeScanMode = FloodingScanMode.udpSocketFallback;
+      await _bindAllFallbackSockets(sanitizedPorts, generation);
+      if (_disposed || generation != _scanGeneration) return;
+
+      // If no ports could be bound, conclude scan immediately with recorded errors.
+      if (_boundSockets.isEmpty) {
+        _isScanning = false;
+        _hasCompletedScan = true;
+        _emitEntriesAndNotify();
+        return;
+      }
+    }
+
+    _tickTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      if (_disposed || !_isScanning || _scanStartTime == null) return;
+      _scanElapsed = DateTime.now().difference(_scanStartTime!);
+      if (_scanDuration > Duration.zero && _scanElapsed > _scanDuration) {
+        _scanElapsed = _scanDuration;
+      }
+      _notifySafe();
+    });
+
+    if (duration > Duration.zero) {
+      _durationTimer = Timer(duration, () {
+        if (_disposed || generation != _scanGeneration) return;
+        stopScan(completedNaturally: true);
+      });
+    }
+
+    _notifySafe();
+  }
+
+  Future<bool> _startTSharkL2Capture({
+    required String executable,
+    required String? interfaceName,
+    required int generation,
+    required List<int> fallbackPorts,
+  }) async {
+    final args = buildTSharkArgs(interfaceName: interfaceName);
+    String? lastStderr;
+
+    try {
+      final process = _processStarter != null
+          ? await _processStarter(executable, args)
+          : await Process.start(executable, args);
+
+      if (_disposed || generation != _scanGeneration) {
+        try {
+          process.kill();
+        } catch (_) {}
+        return false;
+      }
+
+      _tsharkProcess = process;
+      _activeScanMode = FloodingScanMode.tsharkL2;
+      _captureNotice = null;
+
+      _tsharkStdoutSub = process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) {
+              if (_disposed || generation != _scanGeneration) return;
+              _parseTSharkLine(line);
+            },
+            onError: (_) {},
+          );
+
+      _tsharkStderrSub = process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) {
+              final trimmed = line.trim();
+              if (trimmed.isNotEmpty) {
+                lastStderr = trimmed;
+              }
+            },
+            onError: (_) {},
+          );
+
+      process.exitCode.then((code) async {
+        if (_disposed || generation != _scanGeneration || !_isScanning) return;
+        if (code != 0 && totalPacketsSeen == 0 && _boundSockets.isEmpty) {
+          final reason =
+              lastStderr ?? 'tshark exited with status $code';
+          _captureNotice =
+              'TShark L2 capture failed ($reason) — fell back to UDP sockets. '
+              'OS kernels may drop unjoined multicast without capture privileges.';
+          _activeScanMode = FloodingScanMode.udpSocketFallback;
+          _tsharkProcess = null;
+          await _bindAllFallbackSockets(fallbackPorts, generation);
+          if (_disposed || generation != _scanGeneration) return;
+          if (_boundSockets.isEmpty) {
+            await stopScan(completedNaturally: false);
+          } else {
+            _notifySafe();
+          }
+        }
+      });
+
+      return true;
+    } catch (e) {
+      _captureNotice =
+          'Could not launch TShark L2 capture ($e) — fell back to UDP sockets. '
+          'OS kernels may drop unjoined multicast without Layer-2 capture.';
+      return false;
+    }
+  }
+
+  Future<void> _bindAllFallbackSockets(
+    List<int> sanitizedPorts,
+    int generation,
+  ) async {
     // Bind each requested port passively (NEVER call joinMulticast).
     for (final port in sanitizedPorts) {
       if (_disposed || generation != _scanGeneration) return;
@@ -381,34 +626,6 @@ class FloodingScannerService extends ChangeNotifier {
         _portErrors[port] = e.toString();
       }
     }
-
-    if (_disposed || generation != _scanGeneration) return;
-
-    // If no ports could be bound, conclude scan immediately with recorded errors.
-    if (_boundSockets.isEmpty) {
-      _isScanning = false;
-      _hasCompletedScan = true;
-      _emitEntriesAndNotify();
-      return;
-    }
-
-    _tickTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
-      if (_disposed || !_isScanning || _scanStartTime == null) return;
-      _scanElapsed = DateTime.now().difference(_scanStartTime!);
-      if (_scanDuration > Duration.zero && _scanElapsed > _scanDuration) {
-        _scanElapsed = _scanDuration;
-      }
-      _notifySafe();
-    });
-
-    if (duration > Duration.zero) {
-      _durationTimer = Timer(duration, () {
-        if (_disposed || generation != _scanGeneration) return;
-        stopScan(completedNaturally: true);
-      });
-    }
-
-    _notifySafe();
   }
 
   Future<RawDatagramSocket> _bindPassiveSocket(int port) async {
@@ -465,6 +682,30 @@ class FloodingScannerService extends ChangeNotifier {
     _durationTimer?.cancel();
     _durationTimer = null;
 
+    final stdoutSub = _tsharkStdoutSub;
+    _tsharkStdoutSub = null;
+    if (stdoutSub != null) {
+      try {
+        await stdoutSub.cancel();
+      } catch (_) {}
+    }
+
+    final stderrSub = _tsharkStderrSub;
+    _tsharkStderrSub = null;
+    if (stderrSub != null) {
+      try {
+        await stderrSub.cancel();
+      } catch (_) {}
+    }
+
+    final proc = _tsharkProcess;
+    _tsharkProcess = null;
+    if (proc != null) {
+      try {
+        proc.kill();
+      } catch (_) {}
+    }
+
     final subs = _socketSubscriptions.values.toList();
     _socketSubscriptions.clear();
     for (final sub in subs) {
@@ -487,6 +728,7 @@ class FloodingScannerService extends ChangeNotifier {
     if (_disposed) return;
     _entriesByKey.clear();
     _portErrors.clear();
+    _captureNotice = null;
     _ignoredControlPacketCount = 0;
     _ignoredJoinedPacketCount = 0;
     _ignoredUnicastPacketCount = 0;
@@ -530,16 +772,37 @@ class FloodingScannerService extends ChangeNotifier {
     List<int>? ports,
     Duration duration = const Duration(seconds: 10),
     Duration? elapsed,
+    FloodingScanMode? scanMode,
+    String? captureNotice,
   }) {
     if (_disposed) return;
     if (ports != null) {
       _monitoredPorts = List<int>.from(ports);
+    }
+    if (scanMode != null) {
+      _activeScanMode = scanMode;
+    }
+    if (captureNotice != null) {
+      _captureNotice = captureNotice;
     }
     _scanDuration = duration;
     _scanElapsed = elapsed ?? duration;
     _isScanning = false;
     _hasCompletedScan = true;
     _emitEntriesAndNotify();
+  }
+
+  /// Public testing hook to feed a single tab-separated `tshark -T fields` line
+  /// (`frame.time_epoch\tip.src\tip.dst\tudp.dstport\tudp.length\tudp.payload`).
+  @visibleForTesting
+  void processTSharkLineForTesting(
+    String line, {
+    Set<String>? alreadyJoinedGroups,
+  }) {
+    if (alreadyJoinedGroups != null) {
+      _alreadyJoinedGroups = Set<String>.from(alreadyJoinedGroups);
+    }
+    _parseTSharkLine(line);
   }
 
   /// Public testing hook to simulate an arriving [datagram] on [destinationPort]
@@ -563,17 +826,71 @@ class FloodingScannerService extends ChangeNotifier {
     );
   }
 
+  void _parseTSharkLine(String line) {
+    if (_disposed) return;
+    final trimmed = line.trim();
+    if (trimmed.isEmpty) return;
+
+    final parts = line.split('\t');
+    if (parts.length < 4) return;
+
+    final epochSec = double.tryParse(parts[0].trim());
+    final timestamp = epochSec != null
+        ? DateTime.fromMillisecondsSinceEpoch((epochSec * 1000).round())
+        : DateTime.now();
+
+    final sourceIp = parts[1].trim();
+    final destIp = parts[2].trim();
+    final dstPort = int.tryParse(parts[3].trim());
+    if (sourceIp.isEmpty || destIp.isEmpty || dstPort == null || dstPort <= 0) {
+      return;
+    }
+
+    final udpLength = parts.length > 4 ? int.tryParse(parts[4].trim()) : null;
+    final hexPayload = parts.length > 5 ? parts[5].trim() : '';
+    final payload = hexPayload.isNotEmpty
+        ? decodeHexPayload(hexPayload)
+        : Uint8List(0);
+    final byteLen = payload.isNotEmpty
+        ? payload.length
+        : (udpLength != null ? (udpLength - 8).clamp(0, 65535) : 0);
+
+    _processPacket(
+      sourceIp: sourceIp,
+      destinationPort: dstPort,
+      payload: payload,
+      explicitDestinationGroup: destIp,
+      byteLengthOverride: byteLen,
+      timestamp: timestamp,
+    );
+  }
+
   void _processDatagram(
     Datagram datagram,
     int destinationPort, {
     String? destinationGroup,
     DateTime? timestamp,
   }) {
+    _processPacket(
+      sourceIp: datagram.address.address,
+      destinationPort: destinationPort,
+      payload: datagram.data,
+      explicitDestinationGroup: destinationGroup,
+      timestamp: timestamp,
+    );
+  }
+
+  void _processPacket({
+    required String sourceIp,
+    required int destinationPort,
+    required Uint8List payload,
+    String? explicitDestinationGroup,
+    int? byteLengthOverride,
+    DateTime? timestamp,
+  }) {
     if (_disposed) return;
 
     final now = timestamp ?? DateTime.now();
-    final payload = datagram.data;
-    final sourceIp = datagram.address.address;
 
     final igmpPacket = MulticastPacket.decode(payload);
     final (protocol, detail) = igmpPacket != null
@@ -586,7 +903,7 @@ class FloodingScannerService extends ChangeNotifier {
         : identifyProtocol(payload, destinationPort);
 
     final resolvedGroup = _resolveGroupIp(
-      explicitDestinationGroup: destinationGroup,
+      explicitDestinationGroup: explicitDestinationGroup,
       igmpPacket: igmpPacket,
       protocol: protocol,
       payload: payload,
@@ -618,7 +935,7 @@ class FloodingScannerService extends ChangeNotifier {
 
     final key = '$sourceIp|$resolvedGroup|$destinationPort';
     final existing = _entriesByKey[key];
-    final byteLen = payload.length;
+    final byteLen = byteLengthOverride ?? payload.length;
 
     if (existing == null) {
       _evictOldestIfFull();
@@ -729,6 +1046,21 @@ class FloodingScannerService extends ChangeNotifier {
     _tickTimer = null;
     _durationTimer?.cancel();
     _durationTimer = null;
+
+    try {
+      _tsharkStdoutSub?.cancel();
+    } catch (_) {}
+    _tsharkStdoutSub = null;
+
+    try {
+      _tsharkStderrSub?.cancel();
+    } catch (_) {}
+    _tsharkStderrSub = null;
+
+    try {
+      _tsharkProcess?.kill();
+    } catch (_) {}
+    _tsharkProcess = null;
 
     for (final sub in _socketSubscriptions.values) {
       try {

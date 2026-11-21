@@ -397,7 +397,9 @@ void main() {
       );
 
       IgmpQueryEvent staleBoundaryQuery() => IgmpQueryEvent(
-            timestamp: DateTime.now().subtract(const Duration(seconds: 125)),
+            timestamp: DateTime.now().subtract(
+              const Duration(seconds: 125, milliseconds: 500),
+            ),
             querierIp: '192.168.1.1',
             destinationIp: '224.0.0.1',
             typeHex: '0x11',

@@ -42,6 +42,8 @@ class ReceiverPanel extends StatelessWidget {
       scannerService: vm.floodingScannerService,
       alreadyJoinedGroups: vm.activeJoinedGroupKeys,
       interfaceAddress: ifaceAddress,
+      interfaceName: vm.selectedInterface?.name,
+      tsharkPath: vm.tsharkPath,
       autoStart: true,
       onAdoptStream: (entry) async {
         await Navigator.of(context).maybePop();

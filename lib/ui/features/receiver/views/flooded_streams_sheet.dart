@@ -31,6 +31,12 @@ class FloodedStreamsSheet extends StatefulWidget {
   /// Optional interface metadata passed to [FloodingScannerService.startScan].
   final InternetAddress? interfaceAddress;
 
+  /// Optional OS network interface name passed to `tshark -i`.
+  final String? interfaceName;
+
+  /// Optional pre-resolved path to the `tshark` executable.
+  final String? tsharkPath;
+
   /// Multicast group IPs (or `group:port` keys) already subscribed by the
   /// receiver so they are excluded from flooding alerts.
   final Set<String> alreadyJoinedGroups;
@@ -46,6 +52,8 @@ class FloodedStreamsSheet extends StatefulWidget {
     this.scanPorts = FloodingScannerService.defaultPorts,
     this.scanDuration = const Duration(seconds: 10),
     this.interfaceAddress,
+    this.interfaceName,
+    this.tsharkPath,
     this.alreadyJoinedGroups = const {},
     this.autoStart = false,
   });
@@ -58,6 +66,8 @@ class FloodedStreamsSheet extends StatefulWidget {
     List<int> scanPorts = FloodingScannerService.defaultPorts,
     Duration scanDuration = const Duration(seconds: 10),
     InternetAddress? interfaceAddress,
+    String? interfaceName,
+    String? tsharkPath,
     Set<String> alreadyJoinedGroups = const {},
     bool autoStart = true,
   }) {
@@ -75,6 +85,8 @@ class FloodedStreamsSheet extends StatefulWidget {
             scanPorts: scanPorts,
             scanDuration: scanDuration,
             interfaceAddress: interfaceAddress,
+            interfaceName: interfaceName,
+            tsharkPath: tsharkPath,
             alreadyJoinedGroups: alreadyJoinedGroups,
             autoStart: autoStart,
           ),
@@ -142,6 +154,8 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
       ports: widget.scanPorts,
       duration: widget.scanDuration,
       interfaceAddress: widget.interfaceAddress,
+      interfaceName: widget.interfaceName,
+      tsharkPath: widget.tsharkPath,
       alreadyJoinedGroups: widget.alreadyJoinedGroups,
     );
   }
@@ -196,6 +210,11 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                   ports: ports,
                 ),
               ),
+              if (_scanner.captureNotice != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: _buildCaptureNotice(_scanner.captureNotice!),
+                ),
               if (_scanner.portErrors.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -250,7 +269,7 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                   ),
                 ),
                 Text(
-                  'Passive UDP listener without IGMP Membership Reports (zero IGMP Joins sent)',
+                  'Passive Layer-2 / UDP listener without IGMP Membership Reports (zero IGMP Joins sent)',
                   style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
                 ),
               ],
@@ -331,6 +350,65 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
                       ],
                     ),
                   ),
+                  if (isScanning || hasCompleted)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: (_scanner.activeScanMode ==
+                                    FloodingScanMode.tsharkL2
+                                ? AppTheme.success
+                                : AppTheme.warning)
+                            .withValues(alpha: isDark ? 0.14 : 0.10),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: (_scanner.activeScanMode ==
+                                      FloodingScanMode.tsharkL2
+                                  ? AppTheme.success
+                                  : AppTheme.warning)
+                              .withValues(alpha: 0.55),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _scanner.activeScanMode == FloodingScanMode.tsharkL2
+                                ? Icons.layers_outlined
+                                : Icons.lan_outlined,
+                            size: 13,
+                            color: _scanner.activeScanMode ==
+                                    FloodingScanMode.tsharkL2
+                                ? (isDark
+                                    ? const Color(0xFF81C784)
+                                    : const Color(0xFF047857))
+                                : (isDark
+                                    ? const Color(0xFFFFB74D)
+                                    : const Color(0xFFB45309)),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            _scanner.activeScanMode == FloodingScanMode.tsharkL2
+                                ? 'L2 Promiscuous (TShark)'
+                                : 'UDP Socket Fallback',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: _scanner.activeScanMode ==
+                                      FloodingScanMode.tsharkL2
+                                  ? (isDark
+                                      ? const Color(0xFF81C784)
+                                      : const Color(0xFF047857))
+                                  : (isDark
+                                      ? const Color(0xFFFFB74D)
+                                      : const Color(0xFFB45309)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   Text(
                     statusLabel,
                     style: TextStyle(
@@ -608,6 +686,43 @@ class _FloodedStreamsSheetState extends State<FloodedStreamsSheet> {
             child: Text(
               'Click "Start Scan" to listen passively on ports ${ports.join(', ')} without sending IGMP Membership Reports.',
               style: TextStyle(fontSize: 11.5, color: AppTheme.textPrimary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCaptureNotice(String notice) {
+    final bool isDark = AppTheme.isDark;
+    final textColor =
+        isDark ? const Color(0xFFFFCC80) : const Color(0xFF92400E);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0xFFFF9800).withValues(alpha: 0.12)
+            : const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(
+          color: isDark
+              ? const Color(0xFFFF9800).withValues(alpha: 0.45)
+              : AppTheme.warning.withValues(alpha: 0.55),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.info_outline,
+            size: 16,
+            color: isDark ? const Color(0xFFFFB74D) : const Color(0xFFD97706),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              notice,
+              style: TextStyle(fontSize: 11.5, color: textColor),
             ),
           ),
         ],

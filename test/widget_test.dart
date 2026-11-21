@@ -45,6 +45,8 @@ class _TestFloodingScannerService extends FloodingScannerService {
     List<int> ports = FloodingScannerService.defaultPorts,
     Duration duration = const Duration(seconds: 10),
     InternetAddress? interfaceAddress,
+    String? interfaceName,
+    String? tsharkPath,
     Set<String> alreadyJoinedGroups = const {},
     bool ignoreControlGroups = true,
     bool ignoreUnicast = true,
